@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { 
   Sparkles, Trash2, Copy, Check, LogOut, Settings, 
   AlertCircle, X, ChevronDown, Cpu, Zap, Loader2, Type, 
-  Clock, Video, Languages, Palette, Layout, ArrowRight, Volume2
+  Clock, Video, Languages, Palette, Layout, ArrowRight, Volume2, Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
 
 export default function PrompterPage() {
   const [inputText, setInputText] = useState('');
@@ -62,6 +63,7 @@ export default function PrompterPage() {
       .from('prompt_history')
       .select('*')
       .eq('user_id', userId)
+      .neq('style', 'podcast')
       .order('created_at', { ascending: false })
       .limit(10);
     setHistory(data || []);
@@ -170,7 +172,7 @@ export default function PrompterPage() {
       <aside className="w-20 md:w-64 bg-[#0f172a]/80 backdrop-blur-xl border-r border-white/5 flex flex-col flex-shrink-0 z-20">
         <div className="h-20 flex items-center px-6 border-b border-white/5">
            <div className="w-10 h-10 btn-ombre rounded-xl flex items-center justify-center text-white font-bold text-2xl font-serif">S</div>
-           <span className="ml-3 font-serif font-bold text-xl hidden md:block text-gradient">StoryCraft</span>
+           <span className="ml-3 font-serif font-bold text-xl hidden md:block text-gradient">NovaForge AI</span>
         </div>
         
         <nav className="flex-1 py-8 px-3 space-y-2">
@@ -182,6 +184,22 @@ export default function PrompterPage() {
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
             <Video className="w-5 h-5 flex-shrink-0 text-indigo-400" />
             <span className="ml-3 font-semibold hidden md:block">Tạo Prompt Video</span>
+          </button>
+
+          {/* Module Giọng Nói AI */}
+          <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Video className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>
           </button>
           
           {user?.role === 'admin' && (
@@ -202,6 +220,7 @@ export default function PrompterPage() {
       {/* MAIN CONTENT Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative p-4 md:p-10">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/10 blur-[120px] rounded-full -z-10"></div>
+        <SystemAnnouncementBanner userId={user?.id} />
 
         <header className="mb-8 flex items-start justify-between">
           <div>

@@ -19,6 +19,14 @@ export default function LoginPage() {
 
   // Mẹo: Chuyển nickname thành email ảo để Supabase hiểu
   const getFakeEmail = (nick: string) => `${nick.trim().toLowerCase()}@portal.local`;
+  const getDeviceCode = () => {
+    const existing = localStorage.getItem('storycraft_device_code');
+    if (existing) return existing;
+    const random = Math.random().toString(36).slice(2, 10).toUpperCase();
+    const code = `DV-${random}`;
+    localStorage.setItem('storycraft_device_code', code);
+    return code;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +82,21 @@ export default function LoginPage() {
     const sessionId = crypto.randomUUID();
     localStorage.setItem('storycraft_session_id', sessionId);
     await supabase.from('profiles').update({ current_session_id: sessionId }).eq('id', data.user.id);
+    try {
+      const deviceCode = getDeviceCode();
+      await fetch('/api/session/track', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session?.access_token || ''}`,
+        },
+        body: JSON.stringify({
+          userId: data.user.id,
+          sessionId,
+          deviceCode,
+        }),
+      });
+    } catch {}
 
     router.push('/dashboard/cleaner');
   };
@@ -125,7 +148,7 @@ export default function LoginPage() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md glass-card rounded-[3rem] p-12 border-white/5 shadow-2xl z-10">
         <div className="text-center mb-10">
            <div className="w-16 h-16 btn-ombre rounded-2xl flex items-center justify-center text-white text-3xl font-serif font-bold mx-auto mb-6 shadow-xl shadow-indigo-500/20">S</div>
-           <h1 className="text-2xl font-bold text-white font-serif mb-1 tracking-tight">StoryCraft Portal</h1>
+           <h1 className="text-2xl font-bold text-white font-serif mb-1 tracking-tight">NovaForge AI Portal</h1>
            <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">{isRegistering ? 'Đăng ký Nickname mới' : 'Đăng nhập hệ thống'}</p>
         </div>
 

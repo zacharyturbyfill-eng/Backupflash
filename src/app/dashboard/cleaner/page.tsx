@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { 
   Sparkles, Trash2, Copy, Check, LogOut, Settings, 
   AlertCircle, X, ChevronDown, Cpu, Zap, Loader2, Type, 
-  Clock, Eye, ChevronRight, Video, Volume2
+  Clock, Eye, ChevronRight, Video, Volume2, Mic
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
 
 export default function CleanerPage() {
   const [inputText, setInputText] = useState('');
@@ -114,6 +115,12 @@ export default function CleanerPage() {
     router.push('/login');
   };
 
+  const sendToPodcast = () => {
+    if (!resultText.trim()) return;
+    localStorage.setItem('podcast_prefill_text', resultText);
+    router.push('/dashboard/podcast');
+  };
+
   if (!user) return (
     <div className="flex h-screen items-center justify-center bg-[#020617]">
       <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -127,7 +134,7 @@ export default function CleanerPage() {
       <aside className="w-20 md:w-64 bg-[#0f172a]/80 backdrop-blur-xl border-r border-white/5 flex flex-col flex-shrink-0 z-20">
         <div className="h-20 flex items-center px-6 border-b border-white/5">
            <div className="w-10 h-10 btn-ombre rounded-xl flex items-center justify-center text-white font-bold text-2xl font-serif shadow-lg">S</div>
-           <span className="ml-3 font-serif font-bold text-xl hidden md:block text-gradient">StoryCraft</span>
+           <span className="ml-3 font-serif font-bold text-xl hidden md:block text-gradient">NovaForge AI</span>
         </div>
         
         <nav className="flex-1 py-8 px-3 space-y-2">
@@ -141,6 +148,22 @@ export default function CleanerPage() {
           <button onClick={() => router.push('/dashboard/prompter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Video className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span>
+          </button>
+
+          {/* Module Giọng Nói AI */}
+          <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Video className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>
           </button>
           
           {user?.role === 'admin' && (
@@ -161,6 +184,7 @@ export default function CleanerPage() {
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative p-4 md:p-10">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/10 blur-[120px] rounded-full -z-10"></div>
+        <SystemAnnouncementBanner userId={user?.id} />
 
         <header className="mb-8 flex items-start justify-between">
           <div>
@@ -243,14 +267,24 @@ export default function CleanerPage() {
                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] text-gradient">Kết Quả AI (Chuẩn 100%)</span>
                   <span className="px-2 py-0.5 bg-indigo-500/5 rounded-md text-[9px] font-mono text-indigo-400/70">{resultText.length.toLocaleString()} ký tự</span>
                 </div>
-                <button 
-                  onClick={() => { navigator.clipboard.writeText(resultText); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  disabled={!resultText}
-                  className="px-5 py-2.5 bg-white/5 hover:bg-indigo-500/10 rounded-xl transition-all text-indigo-300 flex items-center gap-2 text-xs font-bold border border-white/10 disabled:opacity-20"
-                >
-                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Đã Lưu' : 'Sao Chép'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={sendToPodcast}
+                    disabled={!resultText}
+                    className="px-5 py-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 rounded-xl transition-all text-indigo-300 flex items-center gap-2 text-xs font-bold border border-indigo-500/20 disabled:opacity-20"
+                  >
+                    <Mic className="w-4 h-4" />
+                    Gửi Sang Podcast
+                  </button>
+                  <button 
+                    onClick={() => { navigator.clipboard.writeText(resultText); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    disabled={!resultText}
+                    className="px-5 py-2.5 bg-white/5 hover:bg-indigo-500/10 rounded-xl transition-all text-indigo-300 flex items-center gap-2 text-xs font-bold border border-white/10 disabled:opacity-20"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Đã Lưu' : 'Sao Chép'}
+                  </button>
+                </div>
              </div>
              <div className="result-font flex-1 p-10 overflow-y-auto text-xl md:text-2xl leading-[2] text-slate-100 scrollbar-hide">
                 {resultText ? (

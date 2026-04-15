@@ -5,11 +5,66 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { 
   Users, Key, ChevronLeft, Save, ShieldCheck, 
-  History, UserX, UserCheck, Activity, Globe, Cpu, Zap, X, Eye, FileText, Clock, AlertTriangle, Sparkles, AlertCircle, Trash2, LayoutDashboard, Video, Copy, Check
+  History, UserX, UserCheck, Activity, Globe, Cpu, Zap, X, Eye, FileText, Clock, AlertTriangle, Sparkles, AlertCircle, Trash2, LayoutDashboard, Video, Copy, Check, Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AdminPage() {
+  type UserTaskHistory = {
+    id: string;
+    type: 'clean' | 'prompt' | 'voice' | 'activity';
+    created_at: string;
+    provider?: string | null;
+    char_count?: number | null;
+    summary: string;
+    input_preview?: string;
+    full_text?: string;
+  };
+
+  const isMinimaxProvider = (provider?: string | null) =>
+    typeof provider === 'string' && provider.startsWith('minimax');
+  const encodeMinimaxLabel = (label: string) => {
+    const utf8 = encodeURIComponent(label).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+      String.fromCharCode(parseInt(p1, 16))
+    );
+    return btoa(utf8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  };
+  const decodeMinimaxLabel = (token: string) => {
+    try {
+      const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+      const binary = atob(padded);
+      const encoded = Array.from(binary)
+        .map((ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join('');
+      return decodeURIComponent(encoded);
+    } catch {
+      return '';
+    }
+  };
+  const getMinimaxLabel = (provider?: string | null, fallbackIndex?: number) => {
+    if (!provider || !provider.startsWith('minimax:')) {
+      return typeof fallbackIndex === 'number' ? `Key #${fallbackIndex + 1}` : '';
+    }
+    const parts = provider.split(':');
+    if (parts.length >= 3) {
+      const decoded = decodeMinimaxLabel(parts[1]);
+      if (decoded) return decoded;
+    }
+    return typeof fallbackIndex === 'number' ? `Key #${fallbackIndex + 1}` : '';
+  };
+  const makeMinimaxProviderId = (label?: string) => {
+    const note = label?.trim();
+    const encodedLabel = note ? encodeMinimaxLabel(note) : '';
+    const idPrefix = encodedLabel ? `minimax:${encodedLabel}:` : 'minimax:';
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `${idPrefix}${crypto.randomUUID()}`;
+      }
+    } catch {}
+    return `${idPrefix}${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+
   const [profiles, setProfiles] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [vaultKeys, setVaultKeys] = useState<any[]>([]);
@@ -19,43 +74,98 @@ export default function AdminPage() {
   
   const [editingKeysId, setEditingKeysId] = useState<string | null>(null);
   const [tempKeys, setTempKeys] = useState<any>({});
+  const [minimaxSaveState, setMinimaxSaveState] = useState<{ kind: 'idle' | 'loading' | 'success' | 'error'; message: string }>({
+    kind: 'idle',
+    message: '',
+  });
   
-  const [selectedUserHistory, setSelectedUserHistory] = useState<any[]>([]);
+  const [selectedUserHistory, setSelectedUserHistory] = useState<UserTaskHistory[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [ai84UsageByUser, setAi84UsageByUser] = useState<Record<string, { total: number; today: number }>>({});
+  const [textUsageByUser, setTextUsageByUser] = useState<Record<string, number>>({});
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Record<string, boolean>>({});
 
   const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
   const [showPromptModal, setShowPromptModal] = useState(false);
 
   const [selectedUserIPs, setSelectedUserIPs] = useState<any[]>([]);
   const [showIPModal, setShowIPModal] = useState(false);
+  const [latestDeviceByUser, setLatestDeviceByUser] = useState<Record<string, string>>({});
+  const [announcementTitle, setAnnouncementTitle] = useState('Thông báo hệ thống');
+  const [announcementContent, setAnnouncementContent] = useState('');
+  const [sendingAnnouncement, setSendingAnnouncement] = useState(false);
   
   const router = useRouter();
 
-  const fetchData = async () => {
+  const getAccessToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { router.push('/login'); return; }
+    return session?.access_token || '';
+  };
 
-    const { data: profile } = await supabase.from('profiles').select('role, status').eq('id', session.user.id).single();
-    if (!profile || profile.role !== 'admin') {
-      await supabase.auth.signOut();
-      router.push('/login');
-      return; 
+  const fetchData = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.push('/login'); return; }
+
+      const { data: profile } = await supabase.from('profiles').select('role, status').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') {
+        await supabase.auth.signOut();
+        router.push('/login');
+        return;
+      }
+
+      const { data: staffData } = await supabase.from('profiles').select('*').order('last_active_at', { ascending: false });
+      setProfiles(staffData || []);
+
+      const vaultResponse = await fetch('/api/admin/vault');
+      const vaultData = await vaultResponse.json();
+      if (!vaultResponse.ok) {
+        setVaultKeys([]);
+        setMinimaxSaveState({
+          kind: 'error',
+          message: vaultData.error || 'Không tải được kho khóa tổng.',
+        });
+      } else {
+        setVaultKeys(vaultData.items || []);
+      }
+
+      const { data: usageData } = await supabase.from('usage_logs').select('*').order('created_at', { ascending: false }).limit(20);
+      setLogs(usageData || []);
+      const accessToken = session.access_token || await getAccessToken();
+      const statsRes = await fetch('/api/admin/analytics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: 'stats' }),
+      });
+      const statsJson = await statsRes.json();
+      if (statsRes.ok) {
+        setAi84UsageByUser(statsJson.ai84UsageByUser || {});
+        setTextUsageByUser(statsJson.textUsageByUser || {});
+        setLatestDeviceByUser(statsJson.latestDeviceByUser || {});
+      } else {
+        setAi84UsageByUser({});
+        setTextUsageByUser({});
+        setLatestDeviceByUser({});
+        setMinimaxSaveState({
+          kind: 'error',
+          message: statsJson?.error || 'Không tải được thống kê ký tự nhân viên.',
+        });
+      }
+
+      const { data: pData } = await supabase.from('prompt_history').select('*').order('created_at', { ascending: false }).limit(50);
+      setPromptLogs(pData || []);
+    } catch (error: any) {
+      setMinimaxSaveState({
+        kind: 'error',
+        message: error?.message || 'Không thể tải dữ liệu admin.',
+      });
+    } finally {
+      setLoading(false);
     }
-
-    const { data: staffData } = await supabase.from('profiles').select('*').order('last_active_at', { ascending: false });
-    setProfiles(staffData || []);
-
-    const { data: vaultData } = await supabase.from('api_vault').select('*');
-    setVaultKeys(vaultData || []);
-
-    const { data: usageData } = await supabase.from('usage_logs').select('*').order('created_at', { ascending: false }).limit(20);
-    setLogs(usageData || []);
-
-    const { data: pData } = await supabase.from('prompt_history').select('*').order('created_at', { ascending: false }).limit(50);
-    setPromptLogs(pData || []);
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -68,15 +178,81 @@ export default function AdminPage() {
   };
 
   const saveVaultKey = async (provider: string, key: string) => {
-    const { error } = await supabase.from('api_vault').upsert({ provider, api_key: key }, { onConflict: 'provider' });
-    if (error) alert("Lỗi lưu khóa: " + error.message);
+    const res = await fetch('/api/admin/vault', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'upsert_provider', provider, api_key: key }),
+    });
+    const data = await res.json();
+    if (!res.ok) alert("Lỗi lưu khóa: " + (data.error || 'Unknown error'));
     setEditingKeysId(null);
     fetchData();
   };
 
+  const addMinimaxKey = async () => {
+    let newKey = tempKeys.minimaxNew?.trim();
+    if (!newKey) {
+      const fromPrompt = prompt('Dán API key ai84 vào đây:');
+      if (fromPrompt === null) return;
+      newKey = fromPrompt.trim();
+    }
+    if (!newKey) {
+      setMinimaxSaveState({ kind: 'error', message: 'Vui lòng nhập API Key ai84.' });
+      alert('Vui lòng nhập API Key ai84.');
+      return;
+    }
+
+    const label = tempKeys.minimaxLabel?.trim();
+    const providerId = makeMinimaxProviderId(label);
+
+    try {
+      setMinimaxSaveState({ kind: 'loading', message: 'Đang lưu key ai84...' });
+
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'insert_key', provider: providerId, api_key: newKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const message = data.error || 'Không thể thêm key ai84.';
+        setMinimaxSaveState({ kind: 'error', message });
+        alert('Lỗi thêm key ai84: ' + message);
+        return;
+      }
+
+      setTempKeys((prev: any) => ({ ...prev, minimaxNew: '', minimaxLabel: '' }));
+      await fetchData();
+      setMinimaxSaveState({ kind: 'success', message: 'Đã thêm key ai84.' });
+      alert('Đã thêm key ai84 thành công.');
+    } catch (err: any) {
+      const message = err?.message || 'Không thể thêm key ai84.';
+      setMinimaxSaveState({
+        kind: 'error',
+        message,
+      });
+      alert('Lỗi thêm key ai84: ' + message);
+    }
+  };
+
   const viewUserWorkHistory = async (userId: string) => {
-    const { data } = await supabase.from('cleaning_history').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    setSelectedUserHistory(data || []);
+    const accessToken = await getAccessToken();
+    const res = await fetch('/api/admin/analytics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ action: 'user_history', userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Không tải được lịch sử công việc.');
+      return;
+    }
+
+    setSelectedUserHistory((data.history || []) as UserTaskHistory[]);
+    setExpandedHistoryIds({});
     setShowHistoryModal(true);
   };
 
@@ -84,6 +260,45 @@ export default function AdminPage() {
     const { data } = await supabase.from('login_history').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     setSelectedUserIPs(data || []);
     setShowIPModal(true);
+  };
+
+  const extractDeviceCode = (agent: string | null | undefined) => {
+    const raw = String(agent || '');
+    const match = raw.match(/device:([a-zA-Z0-9_-]+)/);
+    return match?.[1] || 'N/A';
+  };
+
+  const publishAnnouncement = async () => {
+    const content = announcementContent.trim();
+    if (!content) {
+      alert('Vui lòng nhập nội dung thông báo.');
+      return;
+    }
+    setSendingAnnouncement(true);
+    try {
+      const accessToken = await getAccessToken();
+      const res = await fetch('/api/system/announcement', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: 'publish',
+          title: announcementTitle.trim() || 'Thông báo hệ thống',
+          content,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(json.error || 'Không thể gửi thông báo.');
+        return;
+      }
+      setAnnouncementContent('');
+      alert('Đã gửi thông báo tới toàn bộ nhân viên.');
+    } finally {
+      setSendingAnnouncement(false);
+    }
   };
 
   const formatTimeAgo = (date: string | null) => {
@@ -157,6 +372,18 @@ export default function AdminPage() {
                             <td className="px-8 py-6 text-[10px] font-mono">
                                <p className="text-indigo-400">{p.current_ip || '---'}</p>
                                <p className="text-slate-600 mt-1">{formatTimeAgo(p.last_active_at)}</p>
+                               <p className="text-slate-500 mt-1">
+                                 Thiết bị: <span className="text-cyan-300/70">{latestDeviceByUser[p.id] || 'N/A'}</span>
+                               </p>
+                               <p className="text-orange-400/80 mt-2">
+                                 ai84 hôm nay: {(ai84UsageByUser[p.id]?.today || 0).toLocaleString()} ký tự
+                               </p>
+                               <p className="text-orange-300/60 mt-1">
+                                 ai84 tổng: {(ai84UsageByUser[p.id]?.total || 0).toLocaleString()} ký tự
+                               </p>
+                               <p className="text-cyan-300/70 mt-1">
+                                 Tổng ký tự task: {(textUsageByUser[p.id] || 0).toLocaleString()}
+                               </p>
                             </td>
                             <td className="px-8 py-6">
                                <div className="flex gap-2">
@@ -224,7 +451,7 @@ export default function AdminPage() {
                         const vKey = vaultKeys.find(v => v.provider === prov);
                         return (
                           <div key={prov} className="glass-card rounded-[2.5rem] p-8 border-white/5 flex flex-col justify-between min-h-[250px] relative overflow-hidden group">
-                             <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700">
+                            <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none">
                                {prov === 'gemini' ? <Cpu size={120}/> : <Zap size={120}/>}
                              </div>
                              <div>
@@ -239,12 +466,120 @@ export default function AdminPage() {
                                 </div>
                                 <div className="p-4 bg-black/40 rounded-2xl border border-white/5 font-mono text-[10px] text-slate-500 mb-6 truncate">{vKey?.api_key || 'Dùng phao cứu sinh hệ thống'}</div>
                              </div>
-                             <button onClick={() => { setEditingKeysId(prov); setTempKeys({ key: vKey?.api_key || "" }); }} className="w-full py-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all flex items-center justify-center gap-2">
+                             <button
+                               onClick={async () => {
+                                 const current = vKey?.api_key || "";
+                                 const next = prompt(`Nhập API key cho ${prov.toUpperCase()}:`, current);
+                                 if (next === null) return;
+                                 const key = next.trim();
+                                 if (!key) {
+                                   alert("API key không được để trống.");
+                                   return;
+                                 }
+                                 await saveVaultKey(prov, key);
+                               }}
+                               className="w-full py-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all flex items-center justify-center gap-2"
+                             >
                                <Save size={14}/> Cập Nhật Khóa
                              </button>
                           </div>
                         );
                       })}
+                   </div>
+
+                   {/* ===== ai84 MULTI-KEY VAULT ===== */}
+                   <div className="glass-card rounded-[2.5rem] p-8 border-white/5 relative overflow-hidden group">
+                     <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none"><Volume2 size={150}/></div>
+                     <div className="flex items-center gap-3 mb-6">
+                       <div className="p-3 rounded-2xl bg-orange-500/10 text-orange-400"><Volume2 size={24}/></div>
+                       <div>
+                         <h4 className="text-xl font-bold text-white font-serif">ai84 Voice Vault</h4>
+                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                           {vaultKeys.filter(v => isMinimaxProvider(v.provider)).length} Key ai84 đã lưu — Hệ thống tự phân phối
+                         </p>
+                       </div>
+                     </div>
+
+                     {/* Danh sách keys hiện có */}
+                     <div className="space-y-2 mb-6 max-h-[300px] overflow-y-auto scrollbar-hide">
+                        {vaultKeys.filter(v => isMinimaxProvider(v.provider)).map((vk, idx) => (
+                          <div key={`${vk.id}-${vk.provider}`} className="p-4 bg-black/40 rounded-2xl border border-white/5 group/item">
+                           <div className="flex items-center justify-between mb-2">
+                             <div className="flex items-center gap-3 overflow-hidden flex-1">
+                               <div className="w-7 h-7 bg-orange-500/10 rounded-full flex items-center justify-center text-[10px] font-bold text-orange-400 flex-shrink-0">{idx + 1}</div>
+                               <input
+                                  defaultValue={getMinimaxLabel(vk.provider, idx)}
+                                 placeholder="Nhập ghi chú (VD: Key_NV_Minh)..."
+                                  onBlur={async (e) => {
+                                    const newLabel = e.target.value.trim();
+                                    const currentLabel = getMinimaxLabel(vk.provider, idx);
+                                    if (newLabel !== currentLabel) {
+                                       const res = await fetch('/api/admin/vault', {
+                                         method: 'POST',
+                                         headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ action: 'update_label', id: vk.id, label: newLabel }),
+                                      });
+                                      if (res.ok) fetchData();
+                                    }
+                                  }}
+                                 className="flex-1 bg-transparent border-b border-transparent hover:border-white/10 focus:border-orange-500/50 text-sm font-bold text-white outline-none py-1 transition-all placeholder:text-slate-700 placeholder:text-xs"
+                               />
+                             </div>
+                             <button
+                                onClick={async () => {
+                                  if (confirm("Xóa key này?")) {
+                                    const res = await fetch('/api/admin/vault', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ action: 'delete_key', id: vk.id }),
+                                    });
+                                    if (res.ok) fetchData();
+                                  }
+                                }}
+                               className="p-2 text-rose-500/30 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl opacity-0 group-hover/item:opacity-100 transition-all flex-shrink-0 ml-2"
+                             ><Trash2 size={14}/></button>
+                           </div>
+                           <span className="text-[9px] font-mono text-slate-600 ml-10">{vk.api_key.substring(0, 12)}...{vk.api_key.substring(vk.api_key.length - 6)}</span>
+                         </div>
+                       ))}
+                       {vaultKeys.filter(v => isMinimaxProvider(v.provider)).length === 0 && (
+                         <p className="text-center py-6 text-xs text-slate-600 italic border-2 border-dashed border-white/5 rounded-2xl">Chưa có Key nào. Thêm Key ai84 để nhân viên bắt đầu sử dụng.</p>
+                       )}
+                     </div>
+
+                     {/* Form thêm key mới */}
+                     <div className="space-y-3">
+                       <div className="flex gap-3">
+                         <input
+                           type="text"
+                           placeholder="Ghi chú (VD: Key_NV_Minh)"
+                           value={tempKeys.minimaxLabel || ''}
+                           onChange={(e) => setTempKeys((prev: any) => ({ ...prev, minimaxLabel: e.target.value }))}
+                           className="w-40 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-orange-500/50 transition-all"
+                         />
+                         <input
+                           type="password"
+                           placeholder="Dán API Key ai84 vào đây..."
+                           value={tempKeys.minimaxNew || ''}
+                           onChange={(e) => setTempKeys((prev: any) => ({ ...prev, minimaxNew: e.target.value }))}
+                           className="flex-1 bg-black/40 border border-white/10 rounded-xl px-5 py-3 text-sm text-white outline-none focus:border-orange-500/50 transition-all font-mono"
+                         />
+                          <button
+                            type="button"
+                            onClick={addMinimaxKey}
+                            disabled={minimaxSaveState.kind === 'loading'}
+                            className="px-6 py-3 btn-ombre text-white rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                           <Save size={14}/> {minimaxSaveState.kind === 'loading' ? 'Đang lưu...' : 'Thêm Key'}
+                         </button>
+                       </div>
+                       {minimaxSaveState.kind !== 'idle' && (
+                         <p className={`text-[10px] font-bold ${minimaxSaveState.kind === 'error' ? 'text-rose-400' : minimaxSaveState.kind === 'success' ? 'text-emerald-400' : 'text-slate-500'}`}>
+                           {minimaxSaveState.message}
+                         </p>
+                       )}
+                     </div>
+                     <p className="text-[9px] text-slate-600 mt-3 italic">* Key ai84 (api.ai84.pro) dùng để truy cập dịch vụ TTS. Ghi chú sẽ hiển thị khi key lỗi để bạn biết cần thay.</p>
                    </div>
                 </motion.section>
               )}
@@ -252,6 +587,33 @@ export default function AdminPage() {
           </div>
 
           <div className="space-y-8">
+            <section className="glass-card rounded-[2.5rem] overflow-hidden border-white/5 p-8 space-y-4">
+              <div className="flex items-center gap-3 text-amber-400">
+                <AlertTriangle size={20} />
+                <h3 className="font-bold text-white uppercase tracking-widest text-[10px]">Thông Báo Hệ Thống</h3>
+              </div>
+              <input
+                type="text"
+                value={announcementTitle}
+                onChange={(e) => setAnnouncementTitle(e.target.value)}
+                placeholder="Tiêu đề thông báo"
+                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+              />
+              <textarea
+                value={announcementContent}
+                onChange={(e) => setAnnouncementContent(e.target.value)}
+                placeholder="Nhập thông báo gửi toàn bộ nhân viên..."
+                className="w-full min-h-28 bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none resize-y"
+              />
+              <button
+                type="button"
+                onClick={publishAnnouncement}
+                disabled={sendingAnnouncement}
+                className="w-full py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-xs border border-amber-500/30 disabled:opacity-40"
+              >
+                {sendingAnnouncement ? 'Đang gửi...' : 'Gửi Thông Báo Cho Toàn Bộ Nhân Viên'}
+              </button>
+            </section>
             <section className="glass-card rounded-[2.5rem] overflow-hidden border-white/5 p-8 space-y-6">
               <div className="flex items-center gap-3 text-indigo-400">
                  <Activity size={20} />
@@ -317,14 +679,40 @@ export default function AdminPage() {
             {/* ... (Đoạn Modal Nhật ký làm sạch cũ) ... */}
             <motion.div className="max-w-4xl w-full h-[70vh] glass-card rounded-[3rem] p-10 relative">
                <button onClick={() => setShowHistoryModal(false)} className="absolute top-8 right-8 text-slate-500"><X/></button>
-               <h3 className="text-2xl font-bold mb-8">Lịch sử làm sạch của nhân viên</h3>
+               <h3 className="text-2xl font-bold mb-8">Lịch sử công việc của nhân viên</h3>
                <div className="overflow-y-auto h-full pr-4 space-y-4 scrollbar-hide">
-                  {selectedUserHistory.map((h, i) => (
-                    <div key={i} className="p-6 bg-white/5 rounded-2xl border border-white/5 text-xs">
-                       <p className="text-indigo-400 font-mono mb-2">{formatTimeAgo(h.created_at)} | {h.provider}</p>
-                       <p className="text-slate-300 line-clamp-3">"{h.output_content.slice(0, 200)}..."</p>
+                  {selectedUserHistory.map((h) => (
+                    <div key={h.id} className="p-6 bg-white/5 rounded-2xl border border-white/5 text-xs">
+                       <p className="text-indigo-400 font-mono mb-2">
+                         {formatTimeAgo(h.created_at)} | {h.type?.toUpperCase()} | {h.provider || 'n/a'}
+                       </p>
+                       <p className="text-slate-200 text-[11px] mb-2">{h.summary}</p>
+                       {typeof h.char_count === 'number' && (
+                         <p className="text-orange-400/80 mb-2">Ký tự: {h.char_count.toLocaleString()}</p>
+                       )}
+                       {(h.input_preview || h.full_text) && (
+                         <div>
+                           <p className={`text-slate-400 whitespace-pre-wrap ${expandedHistoryIds[h.id] ? '' : 'line-clamp-3'}`}>
+                             "{expandedHistoryIds[h.id] ? (h.full_text || h.input_preview) : h.input_preview}"
+                           </p>
+                           {h.full_text && h.full_text.length > (h.input_preview || '').length && (
+                             <button
+                               type="button"
+                               onClick={() =>
+                                 setExpandedHistoryIds((prev) => ({ ...prev, [h.id]: !prev[h.id] }))
+                               }
+                               className="mt-2 text-[10px] font-bold uppercase tracking-widest text-indigo-300 hover:text-indigo-200"
+                             >
+                               {expandedHistoryIds[h.id] ? 'Thu gọn' : 'Xem thêm'}
+                             </button>
+                           )}
+                         </div>
+                       )}
                     </div>
                   ))}
+                  {selectedUserHistory.length === 0 && (
+                    <p className="text-slate-500 text-xs italic">Chưa có lịch sử công việc.</p>
+                  )}
                </div>
             </motion.div>
           </div>
@@ -339,9 +727,14 @@ export default function AdminPage() {
                <h3 className="text-2xl font-bold mb-8">Lịch sử IP</h3>
                <div className="space-y-4">
                   {selectedUserIPs.map((ip, i) => (
-                    <div key={i} className="p-4 bg-white/5 rounded-xl flex justify-between">
-                       <span className="font-mono text-indigo-400">{ip.ip_address}</span>
-                       <span className="text-slate-500 text-[10px]">{formatTimeAgo(ip.created_at)}</span>
+                    <div key={i} className="p-4 bg-white/5 rounded-xl">
+                       <div className="flex justify-between items-center">
+                         <span className="font-mono text-indigo-400">{ip.ip_address}</span>
+                         <span className="text-slate-500 text-[10px]">{formatTimeAgo(ip.created_at)}</span>
+                       </div>
+                       <p className="text-[10px] text-cyan-300/70 mt-2">
+                         Mã thiết bị: {extractDeviceCode(ip.user_agent)}
+                       </p>
                     </div>
                   ))}
                </div>

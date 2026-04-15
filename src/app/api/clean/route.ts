@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from "@google/genai";
 import { OpenAI } from "openai";
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { persistSession: false } }
-);
+const supabaseAdmin = createSupabaseAdminClient();
 
 export async function POST(req: NextRequest) {
   try {
@@ -90,7 +86,7 @@ export async function POST(req: NextRequest) {
 
       const ai = new GoogleGenAI({ apiKey: finalKey.trim() });
       const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt });
-      cleanedText = response.text;
+      cleanedText = response.text || "";
     }
 
     // 6. CẬP NHẬT GIÁM SÁT & GHI LỊCH SỬ THỜI GIAN THỰC

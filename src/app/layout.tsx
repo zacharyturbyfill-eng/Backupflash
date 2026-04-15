@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "StoryCraft Portal - Hệ Thống Quản Trị Tập Trung",
-  description: "Giải pháp quản lý nhân sự và công cụ AI cho StoryCraft",
+  title: "NovaForge AI Portal - Hệ Thống Quản Trị Tập Trung",
+  description: "Giải pháp quản lý nhân sự và công cụ AI cho NovaForge AI",
 };
 
 export default function RootLayout({

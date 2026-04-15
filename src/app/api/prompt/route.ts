@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from "@google/genai";
 import { OpenAI } from "openai";
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { persistSession: false } }
-);
+const supabaseAdmin = createSupabaseAdminClient();
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,8 +43,7 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         user_email: profile.email,
         tool_name: `Hoàn tất Prompt Video (${style})`,
-        provider: provider,
-        ip_address: ip
+        char_count: (fullTranscript as string).length
       });
 
       return NextResponse.json({ success: true });
