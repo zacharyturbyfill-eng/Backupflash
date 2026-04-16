@@ -516,8 +516,16 @@ export default function VoicePage() {
       let consecutiveErrors = 0;
       let pollInterval = 5000;
       let rateLimitHits = 0;
+      const startedAt = Date.now();
+      const MAX_POLL_MS = 90000;
+      const MAX_RATE_LIMIT_HITS = 3;
+      const MAX_CONSECUTIVE_ERRORS = 4;
 
       const poll = async () => {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          reject("Qua thoi gian doi ket qua. Bam 'Thu lai cac cau loi' de tiep tuc.");
+          return;
+        }
         try {
           const res = await fetch("/api/voice", {
             method: "POST",
@@ -526,6 +534,10 @@ export default function VoicePage() {
           });
           if (res.status === 429) {
             rateLimitHits++;
+            if (rateLimitHits >= MAX_RATE_LIMIT_HITS) {
+              reject("API dang gioi han lien tuc. Bam 'Thu lai cac cau loi' de chay vong moi.");
+              return;
+            }
             pollInterval = Math.min(5000 * Math.pow(1.5, rateLimitHits), 30000);
             if (lineId) setConversationLines(prev => prev.map(l => l.id === lineId ? { ...l, error: `Đang đợi API (Rate Limit), đợi ${Math.round(pollInterval/1000)}s...` } : l));
             setTimeout(poll, pollInterval);
@@ -543,11 +555,11 @@ export default function VoicePage() {
             }
           } else {
             consecutiveErrors++;
-            if (consecutiveErrors > 10) { reject("Lỗi API không xác định"); return; }
+            if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) { reject("Loi API khi lay trang thai. Bam 'Thu lai cac cau loi'."); return; }
           }
         } catch {
           consecutiveErrors++;
-          if (consecutiveErrors > 10) { reject("Lỗi kết nối khi kiểm tra trạng thái"); return; }
+          if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) { reject("Loi ket noi khi kiem tra trang thai."); return; }
           pollInterval = Math.min(pollInterval * 1.5, 20000);
         }
         setTimeout(poll, pollInterval);
@@ -586,11 +598,11 @@ export default function VoicePage() {
     }
   };
 
-  const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<void> => {
+  const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<boolean> => {
     const MAX_LINE_RETRY = 1;
     const RETRY_DELAY_MS = 2000;
     const voiceId = speakerVoiceMap[line.speaker];
-    if (!voiceId) { setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Chưa chọn giọng" } : l)); return; }
+    if (!voiceId) { setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Chưa chọn giọng" } : l)); return false; }
 
     setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "pending", error: "Đang gửi yêu cầu..." } : l));
     try {
@@ -609,7 +621,7 @@ export default function VoicePage() {
           return processLine(line, keyIdx, retryCount + 1);
         }
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Bị giới hạn tạm thời, bấm 'Thử lại các câu lỗi' để chạy tiếp ngay." } : l));
-        return;
+        return false;
       }
       const result = await res.json();
       if (result.success) {
@@ -618,17 +630,42 @@ export default function VoicePage() {
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, jobId: result.job_id, error: `[✓ ${result._keyHealth?.usedKey || 'Key'}] Đang chờ xử lý...` } : l));
         const url = await pollJobStatus(result.job_id, line.id, keyIdx);
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "done", audioUrl: url, error: undefined } : l));
+        return false;
       } else {
         if (result._keyHealth?.deadKeys) setDeadKeyList(result._keyHealth.deadKeys);
         const keyLabel = result._keyHealth?.usedKey || 'Key';
+        const alive = Number(result?._keyHealth?.aliveKeys ?? 1);
+        if (alive <= 0) {
+          setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: `[${keyLabel}] Het key song. Bam chay lai thu cong.` } : l));
+          return true;
+        }
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: `[${keyLabel}] ${result.message}` } : l));
+        return false;
       }
-    } catch {
-      setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Lỗi kết nối" } : l));
+    } catch (err: any) {
+      const msg = String(err?.message || "");
+      const isHardStop = msg.toLowerCase().includes("không có api key khả dụng") || msg.toLowerCase().includes("het key");
+      setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: isHardStop ? "Het key song. Bam chay lai thu cong." : "Lỗi kết nối" } : l));
+      return isHardStop;
     }
   };
 
   const generateConversationTTS = async () => {
+    await refreshKeyHealth();
+    let aliveNow = 0;
+    try {
+      const healthRes = await fetch("/api/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "get_key_count", userId: user.id }),
+      });
+      const healthJson = await healthRes.json();
+      aliveNow = Number(healthJson?.alive ?? 0);
+    } catch {}
+    if (aliveNow <= 0) {
+      setError("Khong con key song. Bam lai khi key hoi phuc hoac chuyen nha cung cap.");
+      return;
+    }
     setIsGenerating(true); setError(null);
     setConversationLines(prev => prev.map(l => l.status === "idle" || l.status === "failed" ? { ...l, status: "waiting", error: "Đang trong hàng đợi..." } : l));
     const linesToProcess = conversationLines.filter(l => l.status !== "done");
@@ -638,13 +675,25 @@ export default function VoicePage() {
     const segments: ConversationLine[][] = Array.from({ length: numKeys }, () => []);
     linesToProcess.forEach((line, index) => { segments[index % numKeys].push(line); });
 
+    let hardStopAll = false;
     const workers = segments.map(async (segment, keyIdx) => {
       const queue = [...segment];
       const runNext = async () => {
-        if (queue.length === 0) return;
+        if (queue.length === 0 || hardStopAll) return;
         const line = queue.shift()!;
         await new Promise(r => setTimeout(r, requestDelay));
-        await processLine(line, keyIdx);
+        const hardStop = await processLine(line, keyIdx);
+        if (hardStop) {
+          hardStopAll = true;
+          setError("Tat ca key dang khong kha dung. Da dung tien trinh, ban co the bam chay lai ngay.");
+          setConversationLines(prev => prev.map(l => {
+            if (l.status === "waiting" || l.status === "pending") {
+              return { ...l, status: "failed", error: "Da dung som vi het key song. Bam 'Thử lại các câu lỗi'." };
+            }
+            return l;
+          }));
+          return;
+        }
         if (queue.length > 0) await runNext();
       };
       const segmentConcurrency = Math.min(concurrencyLimit, queue.length);
@@ -662,16 +711,24 @@ export default function VoicePage() {
   const retryFailedLines = async () => {
     const failedLines = conversationLines.filter(l => l.status === "failed");
     if (failedLines.length === 0) return;
+    await refreshKeyHealth();
     setIsGenerating(true);
     setConversationLines(prev => prev.map(l => l.status === "failed" ? { ...l, status: "waiting", error: "Đang thử lại..." } : l));
 
     const numKeys = Math.max(aliveKeys || keyCount, 1);
     const segments: ConversationLine[][] = Array.from({ length: numKeys }, () => []);
     failedLines.forEach((line, i) => { segments[i % numKeys].push(line); });
+    let hardStopAll = false;
     const workers = segments.map(async (segment, keyIdx) => {
       for (const line of segment) {
+        if (hardStopAll) break;
         await new Promise(r => setTimeout(r, requestDelay));
-        await processLine(line, keyIdx);
+        const hardStop = await processLine(line, keyIdx);
+        if (hardStop) {
+          hardStopAll = true;
+          setError("Tat ca key dang khong kha dung. Da dung tien trinh, ban co the bam chay lai ngay.");
+          break;
+        }
       }
     });
     await Promise.all(workers);
