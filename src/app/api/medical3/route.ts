@@ -6,6 +6,90 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 const supabaseAdmin = createSupabaseAdminClient();
 type ModelProvider = 'gemini' | 'openai';
 
+type SeoPackage = {
+  title: string;
+  description: string;
+  timestamps: string[];
+  hashtags: string[];
+  keywords: string[];
+};
+
+function normalizeSeoPackage(input: any): SeoPackage {
+  const timestamps = Array.isArray(input?.timestamps) ? input.timestamps : [];
+  const hashtags = Array.isArray(input?.hashtags) ? input.hashtags : [];
+  const keywords = Array.isArray(input?.keywords) ? input.keywords : [];
+  return {
+    title: String(input?.title || '').trim().slice(0, 200),
+    description: String(input?.description || '').trim(),
+    timestamps: timestamps.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 10),
+    hashtags: hashtags
+      .map((h: any) => String(h).trim().replace(/\s+/g, ''))
+      .filter(Boolean)
+      .map((h: string) => (h.startsWith('#') ? h : `#${h}`))
+      .slice(0, 20),
+    keywords: keywords.map((k: any) => String(k).trim()).filter(Boolean).slice(0, 20),
+  };
+}
+
+async function generateSeoByProvider(
+  provider: ModelProvider,
+  apiKey: string,
+  transcript: string
+): Promise<SeoPackage> {
+  const prompt = `Bạn là chuyên gia SEO YouTube tiếng Việt.
+Nhiệm vụ: từ transcript sau, tạo gói SEO trả về JSON đúng schema:
+{
+  "title": "string",
+  "description": "string",
+  "timestamps": ["... tối đa 10 mốc thời gian từ đầu đến cuối ..."],
+  "hashtags": ["... đúng 20 hashtag ..."],
+  "keywords": ["... đúng 20 từ khóa SEO ..."]
+}
+
+Yêu cầu bắt buộc:
+1) Description chuẩn SEO, tự nhiên, dễ đọc, bám sát nội dung transcript.
+2) timestamps phải có 10 mốc, phân bố từ đầu đến cuối video, định dạng ưu tiên HH:MM:SS hoặc MM:SS.
+3) hashtags đúng 20 mục, ngắn gọn, liên quan nội dung.
+4) keywords đúng 20 mục, đa dạng, liên quan nội dung.
+5) Không thêm giải thích ngoài JSON.
+
+Transcript:
+${transcript.slice(0, 120000)}`;
+
+  if (provider === 'openai') {
+    const client = new OpenAI({ apiKey: apiKey.trim() });
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4.1-mini',
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const raw = completion.choices[0]?.message?.content || '{}';
+    return normalizeSeoPackage(JSON.parse(raw));
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: [{ parts: [{ text: prompt }] }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          timestamps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['title', 'description', 'timestamps', 'hashtags', 'keywords'],
+      },
+    },
+  });
+  const raw = response.text || '{}';
+  return normalizeSeoPackage(JSON.parse(raw));
+}
+
 const getSystemInstruction = (settings: any) => {
   return `Bạn là chuyên gia viết prompt cho video Veo 3. 
   
@@ -162,6 +246,15 @@ export async function POST(req: NextRequest) {
       const localContext = String(body?.localContext || '');
       const results = await generatePromptsBatch(provider, key, segments, localContext, settings);
       return NextResponse.json({ success: true, results });
+    }
+
+    if (action === 'generate_seo') {
+      const transcript = String(body?.transcript || '');
+      if (!transcript.trim()) {
+        return NextResponse.json({ error: 'Thiếu transcript để tạo SEO.' }, { status: 400 });
+      }
+      const seo = await generateSeoByProvider(provider, key, transcript);
+      return NextResponse.json({ success: true, seo });
     }
 
     if (action === 'save_history') {

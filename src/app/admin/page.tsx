@@ -10,6 +10,12 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function AdminPage() {
+  type UserPromptReminder = {
+    enabled: boolean;
+    message: string;
+    imageUrl: string;
+    confirmTimes: number;
+  };
   type UserTaskHistory = {
     id: string;
     type: 'clean' | 'prompt' | 'voice' | 'activity';
@@ -146,6 +152,15 @@ export default function AdminPage() {
   const [announcementTitle, setAnnouncementTitle] = useState('Thông báo hệ thống');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [sendingAnnouncement, setSendingAnnouncement] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [editingReminderUser, setEditingReminderUser] = useState<any>(null);
+  const [reminderForm, setReminderForm] = useState<UserPromptReminder>({
+    enabled: false,
+    message: '',
+    imageUrl: '',
+    confirmTimes: 1,
+  });
+  const [reminderSaveLoading, setReminderSaveLoading] = useState(false);
   
   const router = useRouter();
 
@@ -465,6 +480,58 @@ export default function AdminPage() {
     }
   };
 
+  const openUserReminderConfig = async (profile: any) => {
+    setEditingReminderUser(profile);
+    setReminderForm({
+      enabled: false,
+      message: '',
+      imageUrl: '',
+      confirmTimes: 1,
+    });
+    setShowReminderModal(true);
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_user_prompt_reminder', targetUserId: profile.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) return;
+      const reminder = json?.reminder || {};
+      setReminderForm({
+        enabled: Boolean(reminder.enabled),
+        message: String(reminder.message || ''),
+        imageUrl: String(reminder.imageUrl || ''),
+        confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+      });
+    } catch {}
+  };
+
+  const saveUserReminderConfig = async () => {
+    if (!editingReminderUser?.id) return;
+    setReminderSaveLoading(true);
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set_user_prompt_reminder',
+          targetUserId: editingReminderUser.id,
+          reminder: reminderForm,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(json.error || 'Không thể lưu nhắc nhở.');
+        return;
+      }
+      alert('Đã lưu nhắc nhở cho nhân viên.');
+      setShowReminderModal(false);
+    } finally {
+      setReminderSaveLoading(false);
+    }
+  };
+
   const formatTimeAgo = (date: string | null) => {
     if (!date) return 'Chưa hoạt động';
     const now = new Date();
@@ -553,6 +620,7 @@ export default function AdminPage() {
                                <div className="flex gap-2">
                                  <button onClick={() => viewUserIPs(p.id)} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-slate-500 hover:text-white transition-all"><Globe size={14}/></button>
                                  <button onClick={() => viewUserWorkHistory(p.id)} className="p-2.5 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-xl text-indigo-400 transition-all border border-indigo-500/10"><FileText size={14}/></button>
+                                 <button onClick={() => openUserReminderConfig(p)} className="p-2.5 bg-amber-500/5 hover:bg-amber-500/10 rounded-xl text-amber-400 transition-all border border-amber-500/10"><AlertCircle size={14}/></button>
                                </div>
                             </td>
                             <td className="px-8 py-6">
@@ -1032,6 +1100,71 @@ export default function AdminPage() {
                     </div>
                   </div>
                </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showReminderModal && editingReminderUser && (
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-6 bg-[#020617]/90 backdrop-blur-2xl">
+            <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }} className="max-w-2xl w-full glass-card border-white/10 rounded-[2.5rem] p-8">
+              <h3 className="text-2xl font-bold text-white mb-2">Nhắc Nhở Theo Nhân Viên</h3>
+              <p className="text-xs text-slate-400 mb-6">
+                Áp dụng cho: <span className="text-amber-300 font-bold">{String(editingReminderUser.email || '').split('@')[0]}</span>
+              </p>
+
+              <div className="space-y-4">
+                <label className="flex items-center gap-3 text-sm text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={reminderForm.enabled}
+                    onChange={(e) => setReminderForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                  />
+                  Bật popup nhắc nhở trước khi tạo prompt
+                </label>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Nội dung nhắc nhở</label>
+                  <textarea
+                    value={reminderForm.message}
+                    onChange={(e) => setReminderForm((prev) => ({ ...prev, message: e.target.value }))}
+                    className="w-full min-h-24 bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none resize-y"
+                    placeholder="Ví dụ: Lưu ý tuyệt đối không chọn nhầm video dành cho trẻ em."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Ảnh popup (URL)</label>
+                  <input
+                    value={reminderForm.imageUrl}
+                    onChange={(e) => setReminderForm((prev) => ({ ...prev, imageUrl: e.target.value }))}
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+                    placeholder="https://... (ảnh hướng dẫn)"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Số lần popup xác nhận</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={reminderForm.confirmTimes}
+                    onChange={(e) => setReminderForm((prev) => ({ ...prev, confirmTimes: Math.max(1, Math.min(10, Number(e.target.value || 1))) }))}
+                    className="w-32 bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-end gap-3">
+                <button onClick={() => setShowReminderModal(false)} className="px-5 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-all">
+                  Hủy
+                </button>
+                <button onClick={saveUserReminderConfig} disabled={reminderSaveLoading} className="px-5 py-3 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-100 font-bold disabled:opacity-40">
+                  {reminderSaveLoading ? 'Đang lưu...' : 'Lưu nhắc nhở'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

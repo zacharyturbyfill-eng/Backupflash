@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { 
@@ -10,6 +10,20 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
+
+type SeoPackage = {
+  title: string;
+  description: string;
+  timestamps: string[];
+  hashtags: string[];
+  keywords: string[];
+};
+type UserPromptReminder = {
+  enabled: boolean;
+  message: string;
+  imageUrl: string;
+  confirmTimes: number;
+};
 
 export default function PrompterPage() {
   const [inputText, setInputText] = useState('');
@@ -27,11 +41,57 @@ export default function PrompterPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [seoPackage, setSeoPackage] = useState<SeoPackage | null>(null);
+  const [showSeoBox, setShowSeoBox] = useState(false);
+  const [copiedSeo, setCopiedSeo] = useState(false);
+  const [showKidsWarnStep1, setShowKidsWarnStep1] = useState(false);
+  const [reminderStep, setReminderStep] = useState(1);
+  const [reminderAgree, setReminderAgree] = useState(false);
+  const [activeReminder, setActiveReminder] = useState<UserPromptReminder | null>(null);
+  const kidsWarnResolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const router = useRouter();
 
-  // Logic chia đoạn nguyên bản (8 giây ~ 20 từ)
+  const parseTimeToSeconds = (raw: string) => {
+    const m = raw.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!m) return 0;
+    const hh = Number(m[1] || 0);
+    const mm = Number(m[2] || 0);
+    const ss = Number(m[3] || 0);
+    return hh * 3600 + mm * 60 + ss;
+  };
+
+  const formatSec = (sec: number) => {
+    const total = Math.max(0, Math.floor(sec));
+    const hh = Math.floor(total / 3600);
+    const mm = Math.floor((total % 3600) / 60);
+    const ss = total % 60;
+    return hh > 0
+      ? `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
+      : `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+  };
+
+  // Logic chia đoạn: ưu tiên format SRT, fallback theo 20 từ/đoạn
   const getSegments = (text: string) => {
+    const normalized = text.replace(/\r\n/g, '\n').trim();
+    const blocks = normalized.split(/\n\s*\n/);
+    const srtSegments: Array<{ id: number; text: string; timestamp: string; prompt: string }> = [];
+    blocks.forEach((block, idx) => {
+      const match = block.match(/^\d+\s*\n(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*\n([\s\S]*)$/);
+      if (!match) return;
+      const startSec = parseTimeToSeconds(match[1]);
+      const endSec = parseTimeToSeconds(match[2]);
+      const body = String(match[3] || '').replace(/\n/g, ' ').trim();
+      if (!body) return;
+      srtSegments.push({
+        id: idx,
+        text: body,
+        timestamp: `${formatSec(startSec)} - ${formatSec(endSec)}`,
+        prompt: "",
+      });
+    });
+    if (srtSegments.length > 0) return srtSegments;
+
     const words = text.trim().split(/\s+/);
     const segments = [];
     const wordsPerSegment = 20;
@@ -85,14 +145,36 @@ export default function PrompterPage() {
 
   const handleGenerate = async () => {
     if (!inputText.trim()) return;
+    const reminder = await getUserReminder();
+    if (reminder?.enabled) {
+      const ok = await new Promise<boolean>((resolve) => {
+        kidsWarnResolverRef.current = resolve;
+        setActiveReminder(reminder);
+        setReminderStep(1);
+        setReminderAgree(false);
+        setShowKidsWarnStep1(true);
+      });
+      if (!ok) return;
+    }
     setLoading(true);
     setProgress(0);
+    setSeoPackage(null);
     
     const allSegments = getSegments(inputText);
     setResults(allSegments); // Hiển thị khung trước khi có prompt
 
     const chunkSize = 10;
     const finalResults = [...allSegments];
+    const seoPromise = fetch('/api/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'generate_seo',
+        transcript: inputText,
+        userId: user.id,
+        provider,
+      }),
+    }).then((r) => r.json()).catch(() => null);
 
     try {
       for (let i = 0; i < allSegments.length; i += chunkSize) {
@@ -139,6 +221,12 @@ export default function PrompterPage() {
         }),
       });
 
+      const seoJson = await seoPromise;
+      if (seoJson?.seo) {
+        setSeoPackage(seoJson.seo);
+        setShowSeoBox(true);
+      }
+
       fetchHistory(user.id);
     } catch (err: any) {
       alert(err.message || 'Lỗi tạo Prompt');
@@ -161,6 +249,76 @@ export default function PrompterPage() {
     navigator.clipboard.writeText(allText);
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(null as any), 2000);
+  };
+
+  const copySeoPackage = () => {
+    if (!seoPackage) return;
+    const text = [
+      seoPackage.title,
+      '',
+      seoPackage.description,
+      '',
+      'TIMESTAMPS:',
+      ...seoPackage.timestamps.map((t, i) => `${i + 1}. ${t}`),
+      '',
+      'HASHTAGS:',
+      seoPackage.hashtags.join(' '),
+      '',
+      'KEYWORDS SEO:',
+      seoPackage.keywords.join(', '),
+    ].join('\n');
+    navigator.clipboard.writeText(text);
+    setCopiedSeo(true);
+    setTimeout(() => setCopiedSeo(false), 1800);
+  };
+  const getUserReminder = async (): Promise<UserPromptReminder | null> => {
+    if (!user?.id) return null;
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_user_prompt_reminder', targetUserId: user.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) return null;
+      const reminder = json?.reminder;
+      if (!reminder) return null;
+      return {
+        enabled: Boolean(reminder.enabled),
+        message: String(reminder.message || ''),
+        imageUrl: String(reminder.imageUrl || ''),
+        confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const confirmKidsStep1 = () => {
+    if (!activeReminder) return;
+    if (!reminderAgree) return;
+    if (reminderStep < activeReminder.confirmTimes) {
+      setReminderStep((prev) => prev + 1);
+      setReminderAgree(false);
+      return;
+    }
+    setShowKidsWarnStep1(false);
+    if (kidsWarnResolverRef.current) {
+      kidsWarnResolverRef.current(true);
+      kidsWarnResolverRef.current = null;
+    }
+    setActiveReminder(null);
+  };
+
+  const cancelKidsWarning = () => {
+    setShowKidsWarnStep1(false);
+    setReminderStep(1);
+    setReminderAgree(false);
+    setActiveReminder(null);
+    if (kidsWarnResolverRef.current) {
+      kidsWarnResolverRef.current(false);
+      kidsWarnResolverRef.current = null;
+    }
   };
 
   if (!user) return <div className="flex h-screen items-center justify-center bg-[#020617]"><Loader2 className="animate-spin text-indigo-500 w-10 h-10"/></div>;
@@ -253,6 +411,47 @@ export default function PrompterPage() {
               </div>
           </div>
         </header>
+
+        <div className="mb-6 glass-card rounded-2xl border-white/10 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-300">Mô Tả Video SEO</p>
+              <p className="text-[10px] text-slate-500">Sinh tự động cùng lúc với prompt video</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSeoBox((v) => !v)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-black uppercase tracking-widest border border-white/10"
+              >
+                {showSeoBox ? 'Thu Gọn' : 'Xổ Ra'}
+              </button>
+              <button
+                type="button"
+                onClick={copySeoPackage}
+                disabled={!seoPackage}
+                className="px-4 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-[10px] font-black uppercase tracking-widest border border-indigo-400/30 disabled:opacity-40"
+              >
+                {copiedSeo ? 'Đã Copy' : 'Copy SEO'}
+              </button>
+            </div>
+          </div>
+          {showSeoBox && (
+            <div className="mt-4 rounded-2xl bg-black/30 border border-white/10 p-4">
+              {!seoPackage ? (
+                <p className="text-xs text-slate-500 italic">Chưa có dữ liệu SEO. Hãy tạo prompt để hệ thống sinh mô tả.</p>
+              ) : (
+                <div className="space-y-3 text-sm text-slate-200">
+                  <p><span className="text-indigo-300 font-bold">Tiêu đề:</span> {seoPackage.title}</p>
+                  <p className="whitespace-pre-wrap"><span className="text-indigo-300 font-bold">Mô tả:</span> {seoPackage.description}</p>
+                  <p><span className="text-indigo-300 font-bold">Timestamps ({seoPackage.timestamps.length}):</span> {seoPackage.timestamps.join(' | ')}</p>
+                  <p><span className="text-indigo-300 font-bold">Hashtags ({seoPackage.hashtags.length}):</span> {seoPackage.hashtags.join(' ')}</p>
+                  <p><span className="text-indigo-300 font-bold">Keywords ({seoPackage.keywords.length}):</span> {seoPackage.keywords.join(', ')}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Cấu hình Tool gốc */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -394,6 +593,33 @@ export default function PrompterPage() {
                   </div>
                </motion.div>
             </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showKidsWarnStep1 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[120] flex items-center justify-center bg-[#020617]/90 backdrop-blur-md p-6">
+              <motion.div initial={{ y: 20, scale: 0.98 }} animate={{ y: 0, scale: 1 }} className="max-w-xl w-full bg-slate-900 border border-amber-400/30 rounded-3xl p-7">
+                <h3 className="text-xl font-bold text-amber-300 mb-2">Nhắc nhở quan trọng</h3>
+                <p className="text-[11px] text-slate-500 mb-3 uppercase tracking-widest font-black">Xác nhận {reminderStep}/{activeReminder?.confirmTimes || 1}</p>
+                <p className="text-sm text-slate-200 whitespace-pre-wrap">{activeReminder?.message || 'Vui lòng đọc kỹ nhắc nhở trước khi tiếp tục.'}</p>
+                {activeReminder?.imageUrl && (
+                  <div className="mt-4 rounded-2xl overflow-hidden border border-white/10">
+                    <img src={activeReminder.imageUrl} alt="Reminder" className="w-full h-auto" />
+                  </div>
+                )}
+                <label className="mt-4 flex items-center gap-3 text-sm text-slate-300">
+                  <input type="checkbox" checked={reminderAgree} onChange={(e) => setReminderAgree(e.target.checked)} />
+                  Tôi đã đọc và hiểu nhắc nhở này
+                </label>
+                <div className="mt-6 flex justify-end gap-3">
+                  <button onClick={cancelKidsWarning} className="px-4 py-2 rounded-xl border border-white/10 text-slate-300">Hủy</button>
+                  <button onClick={confirmKidsStep1} disabled={!reminderAgree} className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-200 font-bold disabled:opacity-40">
+                    {reminderStep >= (activeReminder?.confirmTimes || 1) ? 'Tiếp tục tạo prompt' : 'Xác nhận lần tiếp theo'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>

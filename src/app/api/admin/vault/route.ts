@@ -40,6 +40,7 @@ function parseAi33Provider(provider: string) {
 }
 
 const PROXY_CONFIG_PROVIDER = 'proxy_config:enabled';
+const USER_PROMPT_REMINDER_PREFIX = 'user_prompt_reminder:';
 
 async function checkProxyLive(proxyUrl: string) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -191,6 +192,77 @@ export async function POST(req: NextRequest) {
         const result = await checkProxyLive(proxy_url);
         if (!result.success) return NextResponse.json(result, { status: 400 });
         return NextResponse.json(result);
+      }
+      case 'get_user_prompt_reminder': {
+        const targetUserId = String(body.targetUserId || '').trim();
+        if (!targetUserId) {
+          return NextResponse.json({ error: 'Thiếu targetUserId' }, { status: 400 });
+        }
+        const provider = `${USER_PROMPT_REMINDER_PREFIX}${targetUserId}`;
+        const { data, error } = await supabaseAdmin
+          .from('api_vault')
+          .select('api_key')
+          .eq('provider', provider)
+          .maybeSingle();
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (!data?.api_key) {
+          return NextResponse.json({
+            success: true,
+            reminder: {
+              enabled: false,
+              message: '',
+              imageUrl: '',
+              confirmTimes: 1,
+            },
+          });
+        }
+        try {
+          const parsed = JSON.parse(String(data.api_key));
+          return NextResponse.json({
+            success: true,
+            reminder: {
+              enabled: Boolean(parsed?.enabled),
+              message: String(parsed?.message || ''),
+              imageUrl: String(parsed?.imageUrl || ''),
+              confirmTimes: Math.max(1, Math.min(10, Number(parsed?.confirmTimes || 1))),
+            },
+          });
+        } catch {
+          return NextResponse.json({
+            success: true,
+            reminder: {
+              enabled: false,
+              message: '',
+              imageUrl: '',
+              confirmTimes: 1,
+            },
+          });
+        }
+      }
+      case 'set_user_prompt_reminder': {
+        const targetUserId = String(body.targetUserId || '').trim();
+        if (!targetUserId) {
+          return NextResponse.json({ error: 'Thiếu targetUserId' }, { status: 400 });
+        }
+        const reminder = body.reminder || {};
+        const payload = {
+          enabled: Boolean(reminder.enabled),
+          message: String(reminder.message || '').trim(),
+          imageUrl: String(reminder.imageUrl || '').trim(),
+          confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+        };
+        const provider = `${USER_PROMPT_REMINDER_PREFIX}${targetUserId}`;
+        const { error } = await supabaseAdmin
+          .from('api_vault')
+          .upsert(
+            {
+              provider,
+              api_key: JSON.stringify(payload),
+            },
+            { onConflict: 'provider' }
+          );
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        return NextResponse.json({ success: true, reminder: payload });
       }
       default:
         return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });
