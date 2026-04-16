@@ -15,6 +15,8 @@ export default function AdminPage() {
     message: string;
     imageUrl: string;
     confirmTimes: number;
+    onPrompt: boolean;
+    onTitle: boolean;
   };
   type UserTaskHistory = {
     id: string;
@@ -159,6 +161,8 @@ export default function AdminPage() {
     message: '',
     imageUrl: '',
     confirmTimes: 1,
+    onPrompt: true,
+    onTitle: false,
   });
   const [reminderSaveLoading, setReminderSaveLoading] = useState(false);
   
@@ -487,6 +491,8 @@ export default function AdminPage() {
       message: '',
       imageUrl: '',
       confirmTimes: 1,
+      onPrompt: true,
+      onTitle: false,
     });
     setShowReminderModal(true);
     try {
@@ -503,6 +509,8 @@ export default function AdminPage() {
         message: String(reminder.message || ''),
         imageUrl: String(reminder.imageUrl || ''),
         confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+        onPrompt: reminder.onPrompt === undefined ? true : Boolean(reminder.onPrompt),
+        onTitle: Boolean(reminder.onTitle),
       });
     } catch {}
   };
@@ -1121,8 +1129,26 @@ export default function AdminPage() {
                     checked={reminderForm.enabled}
                     onChange={(e) => setReminderForm((prev) => ({ ...prev, enabled: e.target.checked }))}
                   />
-                  Bật popup nhắc nhở trước khi tạo prompt
+                  Bật popup nhắc nhở
                 </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={reminderForm.onPrompt}
+                      onChange={(e) => setReminderForm((prev) => ({ ...prev, onPrompt: e.target.checked }))}
+                    />
+                    Trigger khi bấm tạo prompt
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={reminderForm.onTitle}
+                      onChange={(e) => setReminderForm((prev) => ({ ...prev, onTitle: e.target.checked }))}
+                    />
+                    Trigger khi bấm tạo tiêu đề
+                  </label>
+                </div>
 
                 <div>
                   <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Nội dung nhắc nhở</label>

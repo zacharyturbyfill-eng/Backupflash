@@ -213,6 +213,8 @@ export async function POST(req: NextRequest) {
               message: '',
               imageUrl: '',
               confirmTimes: 1,
+              onPrompt: true,
+              onTitle: false,
             },
           });
         }
@@ -225,6 +227,8 @@ export async function POST(req: NextRequest) {
               message: String(parsed?.message || ''),
               imageUrl: String(parsed?.imageUrl || ''),
               confirmTimes: Math.max(1, Math.min(10, Number(parsed?.confirmTimes || 1))),
+              onPrompt: parsed?.onPrompt === undefined ? true : Boolean(parsed?.onPrompt),
+              onTitle: Boolean(parsed?.onTitle),
             },
           });
         } catch {
@@ -235,6 +239,8 @@ export async function POST(req: NextRequest) {
               message: '',
               imageUrl: '',
               confirmTimes: 1,
+              onPrompt: true,
+              onTitle: false,
             },
           });
         }
@@ -250,6 +256,8 @@ export async function POST(req: NextRequest) {
           message: String(reminder.message || '').trim(),
           imageUrl: String(reminder.imageUrl || '').trim(),
           confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+          onPrompt: reminder.onPrompt === undefined ? true : Boolean(reminder.onPrompt),
+          onTitle: Boolean(reminder.onTitle),
         };
         const provider = `${USER_PROMPT_REMINDER_PREFIX}${targetUserId}`;
         const { error } = await supabaseAdmin

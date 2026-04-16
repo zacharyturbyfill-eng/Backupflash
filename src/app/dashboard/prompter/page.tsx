@@ -23,6 +23,8 @@ type UserPromptReminder = {
   message: string;
   imageUrl: string;
   confirmTimes: number;
+  onPrompt: boolean;
+  onTitle: boolean;
 };
 
 export default function PrompterPage() {
@@ -146,17 +148,8 @@ export default function PrompterPage() {
 
   const handleGenerate = async () => {
     if (!inputText.trim()) return;
-    const reminder = await getUserReminder();
-    if (reminder?.enabled) {
-      const ok = await new Promise<boolean>((resolve) => {
-        kidsWarnResolverRef.current = resolve;
-        setActiveReminder(reminder);
-        setReminderStep(1);
-        setReminderAgree(false);
-        setShowKidsWarnStep1(true);
-      });
-      if (!ok) return;
-    }
+    const ok = await confirmReminderIfNeeded('prompt');
+    if (!ok) return;
     setLoading(true);
     setProgress(0);
     
@@ -258,6 +251,8 @@ export default function PrompterPage() {
 
   const handleGenerateSeo = async () => {
     if (!inputText.trim() || !user?.id || generatingSeo) return;
+    const ok = await confirmReminderIfNeeded('title');
+    if (!ok) return;
     setGeneratingSeo(true);
     try {
       const response = await fetch('/api/prompt', {
@@ -298,10 +293,27 @@ export default function PrompterPage() {
         message: String(reminder.message || ''),
         imageUrl: String(reminder.imageUrl || ''),
         confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+        onPrompt: reminder.onPrompt === undefined ? true : Boolean(reminder.onPrompt),
+        onTitle: Boolean(reminder.onTitle),
       };
     } catch {
       return null;
     }
+  };
+
+  const confirmReminderIfNeeded = async (trigger: 'prompt' | 'title') => {
+    const reminder = await getUserReminder();
+    if (!reminder?.enabled) return true;
+    const triggerMatched = trigger === 'prompt' ? reminder.onPrompt : reminder.onTitle;
+    if (!triggerMatched) return true;
+
+    return new Promise<boolean>((resolve) => {
+      kidsWarnResolverRef.current = resolve;
+      setActiveReminder(reminder);
+      setReminderStep(1);
+      setReminderAgree(false);
+      setShowKidsWarnStep1(true);
+    });
   };
 
   const confirmKidsStep1 = () => {

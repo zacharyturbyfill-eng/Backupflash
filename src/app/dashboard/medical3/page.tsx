@@ -67,6 +67,8 @@ type UserPromptReminder = {
   message: string;
   imageUrl: string;
   confirmTimes: number;
+  onPrompt: boolean;
+  onTitle: boolean;
 };
 
 const VEO_SEGMENT_DURATION_MS = 8000;
@@ -234,17 +236,8 @@ export default function Medical3Page() {
 
   const handleGenerate = async () => {
     if (!transcript.trim() || !user) return;
-    const reminder = await getUserReminder();
-    if (reminder?.enabled) {
-      const ok = await new Promise<boolean>((resolve) => {
-        kidsWarnResolverRef.current = resolve;
-        setActiveReminder(reminder);
-        setReminderStep(1);
-        setReminderAgree(false);
-        setShowKidsWarnStep1(true);
-      });
-      if (!ok) return;
-    }
+    const ok = await confirmReminderIfNeeded('prompt');
+    if (!ok) return;
     setIsProcessing(true);
     setProgress(1);
     try {
@@ -347,6 +340,8 @@ export default function Medical3Page() {
 
   const handleGenerateSeo = async () => {
     if (!transcript.trim() || !user?.id || generatingSeo) return;
+    const ok = await confirmReminderIfNeeded('title');
+    if (!ok) return;
     setGeneratingSeo(true);
     try {
       const response = await fetch('/api/medical3', {
@@ -389,10 +384,27 @@ export default function Medical3Page() {
         message: String(reminder.message || ''),
         imageUrl: String(reminder.imageUrl || ''),
         confirmTimes: Math.max(1, Math.min(10, Number(reminder.confirmTimes || 1))),
+        onPrompt: reminder.onPrompt === undefined ? true : Boolean(reminder.onPrompt),
+        onTitle: Boolean(reminder.onTitle),
       };
     } catch {
       return null;
     }
+  };
+
+  const confirmReminderIfNeeded = async (trigger: 'prompt' | 'title') => {
+    const reminder = await getUserReminder();
+    if (!reminder?.enabled) return true;
+    const triggerMatched = trigger === 'prompt' ? reminder.onPrompt : reminder.onTitle;
+    if (!triggerMatched) return true;
+
+    return new Promise<boolean>((resolve) => {
+      kidsWarnResolverRef.current = resolve;
+      setActiveReminder(reminder);
+      setReminderStep(1);
+      setReminderAgree(false);
+      setShowKidsWarnStep1(true);
+    });
   };
 
   const confirmKidsStep1 = () => {
