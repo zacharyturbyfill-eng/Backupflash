@@ -90,6 +90,7 @@ export default function VoicePage() {
   const [newFixTo, setNewFixTo] = useState("");
   const [showFixPanel, setShowFixPanel] = useState(false);
   const [fixApplied, setFixApplied] = useState(false);
+  const [fixAppliedCount, setFixAppliedCount] = useState<number>(0);
 
   // Conversation Mode States
   const [isConversationMode, setIsConversationMode] = useState(false);
@@ -205,9 +206,40 @@ export default function VoicePage() {
     } catch {}
   }, []);
 
+  const saveFixRulesToServer = useCallback(async (rules: PronunciationFixRule[]) => {
+    if (!user?.id) return;
+    await fetch("/api/voice-ai33", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save_fix_rules", userId: user.id, rules }),
+    });
+  }, [user]);
+
   useEffect(() => {
     localStorage.setItem(FIX_RULES_STORAGE_KEY, JSON.stringify(fixRules));
   }, [fixRules]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const loadGlobalRules = async () => {
+      try {
+        const res = await fetch("/api/voice-ai33", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "get_fix_rules", userId: user.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) return;
+        const serverRules = Array.isArray(data?.rules) ? data.rules : [];
+        if (serverRules.length > 0) {
+          setFixRules(serverRules);
+        } else {
+          await saveFixRulesToServer(fixRules);
+        }
+      } catch {}
+    };
+    loadGlobalRules();
+  }, [user, saveFixRulesToServer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch key count + health
   const refreshKeyHealth = useCallback(async () => {
@@ -305,31 +337,48 @@ export default function VoicePage() {
 
   const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const applySingleRule = (input: string, rule: PronunciationFixRule) => {
+  const applySingleRule = (input: string, rule: PronunciationFixRule): { text: string; count: number } => {
     const from = rule.from.trim();
     const to = rule.to.trim();
-    if (!from || !to) return input;
+    if (!from || !to) return { text: input, count: 0 };
+
+    let count = 0;
 
     if (/\s/.test(from)) {
       const phraseRegex = new RegExp(escapeRegex(from), "giu");
-      return input.replace(phraseRegex, to);
+      const text = input.replace(phraseRegex, () => {
+        count++;
+        return to;
+      });
+      return { text, count };
     }
 
     const tokenRegex = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegex(from)})(?=[^\\p{L}\\p{N}]|$)`, "giu");
-    return input.replace(tokenRegex, (_m, prefix) => `${prefix}${to}`);
+    const text = input.replace(tokenRegex, (_m, prefix) => {
+      count++;
+      return `${prefix}${to}`;
+    });
+    return { text, count };
   };
 
   const applyFixWords = () => {
     if (!text.trim()) return;
+    let totalCount = 0;
     setText((prev) => {
       let next = prev;
       fixRules.forEach((rule) => {
-        next = applySingleRule(next, rule);
+        const result = applySingleRule(next, rule);
+        next = result.text;
+        totalCount += result.count;
       });
       return next;
     });
+    setFixAppliedCount(totalCount);
     setFixApplied(true);
-    setTimeout(() => setFixApplied(false), 1800);
+    setTimeout(() => {
+      setFixApplied(false);
+      setFixAppliedCount(0);
+    }, 1800);
   };
 
   const safeTitleSlug = useMemo(() => {
@@ -361,13 +410,17 @@ export default function VoicePage() {
       from,
       to,
     };
-    setFixRules((prev) => [...prev, rule]);
+    const nextRules = [...fixRules, rule];
+    setFixRules(nextRules);
+    void saveFixRulesToServer(nextRules);
     setNewFixFrom("");
     setNewFixTo("");
   };
 
   const removeFixRule = (id: string) => {
-    setFixRules((prev) => prev.filter((r) => r.id !== id));
+    const nextRules = fixRules.filter((r) => r.id !== id);
+    setFixRules(nextRules);
+    void saveFixRulesToServer(nextRules);
   };
 
   // Parse conversation lines
@@ -1064,7 +1117,7 @@ export default function VoicePage() {
                         : "bg-indigo-500/10 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20"
                     }`}
                   >
-                    {fixApplied ? "Đã Fix Toàn Bộ" : "Fix Từ Lỗi"}
+                    {fixApplied ? `Đã Fix ${fixAppliedCount} lỗi` : "Fix Từ Lỗi"}
                   </button>
                   <button
                     type="button"

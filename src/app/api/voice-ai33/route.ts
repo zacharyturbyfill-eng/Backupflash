@@ -9,11 +9,17 @@ const MAX_RETRIES = 3;
 const DEAD_KEY_THRESHOLD = 3;     // 3 lỗi liên tiếp → đánh dấu chết
 const DEAD_KEY_COOLDOWN = 300000; // 5 phút sau thử lại key chết
 const VOICE_PRESENCE_PREFIX = 'VOICE_PRESENCE|';
+const VOICE_FIX_RULES_PROVIDER = 'voice_fix_rules:global';
 
 // ===== CẤU TRÚC KEY VỚI LABEL =====
 interface KeyEntry {
   api_key: string;
   label: string; // Ghi chú do admin đặt
+}
+interface FixRule {
+  id: string;
+  from: string;
+  to: string;
 }
 
 function decodeAi33LabelFromProvider(provider?: string | null): string {
@@ -206,6 +212,44 @@ function parsePresence(toolName: string) {
   }
 }
 
+function normalizeFixRules(input: any): FixRule[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((r: any, idx: number) => ({
+      id: String(r?.id || `rule-${idx}`),
+      from: String(r?.from || '').trim(),
+      to: String(r?.to || '').trim(),
+    }))
+    .filter((r: FixRule) => r.from && r.to)
+    .slice(0, 500);
+}
+
+async function getGlobalFixRules(): Promise<FixRule[]> {
+  const { data } = await supabaseAdmin
+    .from('api_vault')
+    .select('api_key')
+    .eq('provider', VOICE_FIX_RULES_PROVIDER)
+    .maybeSingle();
+  if (!data?.api_key) return [];
+  try {
+    return normalizeFixRules(JSON.parse(String(data.api_key)));
+  } catch {
+    return [];
+  }
+}
+
+async function saveGlobalFixRules(rules: FixRule[]) {
+  const normalized = normalizeFixRules(rules);
+  const { error } = await supabaseAdmin
+    .from('api_vault')
+    .upsert(
+      { provider: VOICE_FIX_RULES_PROVIDER, api_key: JSON.stringify(normalized) },
+      { onConflict: 'provider' }
+    );
+  if (error) throw new Error(error.message);
+  return normalized;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -287,6 +331,17 @@ export async function POST(req: NextRequest) {
         totalActive: activeUsers.length,
         otherActive: activeUsers.filter((u) => u.userId !== userId),
       });
+    }
+
+    if (action === 'get_fix_rules') {
+      const rules = await getGlobalFixRules();
+      return NextResponse.json({ success: true, rules });
+    }
+
+    if (action === 'save_fix_rules') {
+      const rules = normalizeFixRules(body.rules);
+      const saved = await saveGlobalFixRules(rules);
+      return NextResponse.json({ success: true, rules: saved });
     }
 
     if (allEntries.length === 0 && action !== 'get_key_count' && action !== 'reset_dead_keys') {
