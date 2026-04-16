@@ -39,6 +39,7 @@ interface PronunciationFixRule {
 const FIX_RULES_STORAGE_KEY = "voice_pronunciation_fix_rules_v1";
 const VOICE_MIGRATION_STORAGE_KEY = "voice_cross_provider_migration_v1";
 const SPEAKER_VOICE_MAP_STORAGE_KEY = "voice33_speaker_voice_map_v1";
+const VOICE_SNAPSHOT_STORAGE_KEY = "voice_provider_snapshots_v1";
 const DEFAULT_FIX_RULES: PronunciationFixRule[] = [
   { id: "r1", from: "im lặng", to: "yên lặng" },
   { id: "r2", from: "ml", to: "mililit" },
@@ -72,6 +73,7 @@ const writeWav = (buffer: AudioBuffer): Blob => {
 };
 
 export default function VoicePage() {
+  const CURRENT_PROVIDER: "ai84" | "ai33" = "ai33";
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -139,7 +141,37 @@ export default function VoicePage() {
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [needsVoiceRemapAfterSwitch, setNeedsVoiceRemapAfterSwitch] = useState(false);
   const [switchedFromProvider, setSwitchedFromProvider] = useState<"ai84" | "ai33" | null>(null);
+  const [showSwitchReminderModal, setShowSwitchReminderModal] = useState(false);
   const skipAutoParseRef = useRef(false);
+
+  const saveProviderSnapshot = useCallback((provider: "ai84" | "ai33", data: {
+    text: string;
+    isConversationMode: boolean;
+    conversationLines: ConversationLine[];
+    projectTitle: string;
+    pauseDuration: number;
+    requestDelay: number;
+    concurrencyLimit: number;
+    speakerVoiceMap: Record<string, string>;
+  }) => {
+    try {
+      const raw = localStorage.getItem(VOICE_SNAPSHOT_STORAGE_KEY);
+      const snapshots = raw ? JSON.parse(raw) : {};
+      snapshots[provider] = { ...data, updatedAt: Date.now() };
+      localStorage.setItem(VOICE_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshots));
+    } catch {}
+  }, []);
+
+  const getProviderSnapshot = useCallback((provider: "ai84" | "ai33") => {
+    try {
+      const raw = localStorage.getItem(VOICE_SNAPSHOT_STORAGE_KEY);
+      if (!raw) return null;
+      const snapshots = JSON.parse(raw);
+      return snapshots?.[provider] || null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const migrateToProvider = useCallback((target: "ai84" | "ai33") => {
     const hasWork = conversationLines.some((l) => l.status !== "idle" || Boolean(l.audioUrl));
@@ -165,8 +197,19 @@ export default function VoicePage() {
       Object.entries(speakerVoiceMap).filter(([speaker]) => !unfinishedSpeakers.has(speaker))
     );
 
+    saveProviderSnapshot(CURRENT_PROVIDER, {
+      text,
+      isConversationMode,
+      conversationLines,
+      projectTitle,
+      pauseDuration,
+      requestDelay,
+      concurrencyLimit,
+      speakerVoiceMap,
+    });
+
     const payload = {
-      source: "ai33",
+      source: CURRENT_PROVIDER,
       target,
       text,
       isConversationMode,
@@ -176,13 +219,39 @@ export default function VoicePage() {
       requestDelay,
       concurrencyLimit,
       speakerVoiceMap: safeVoiceMap,
+      requiresVoiceRemap: true,
       migratedAt: Date.now(),
     };
     localStorage.setItem(VOICE_MIGRATION_STORAGE_KEY, JSON.stringify(payload));
     localStorage.setItem(SPEAKER_VOICE_MAP_STORAGE_KEY, JSON.stringify(safeVoiceMap));
     setSpeakerVoiceMap(safeVoiceMap);
     router.push(target === "ai84" ? "/dashboard/voice" : "/dashboard/voice-ai33");
-  }, [conversationLines, speakerVoiceMap, text, isConversationMode, projectTitle, pauseDuration, requestDelay, concurrencyLimit, router]);
+  }, [CURRENT_PROVIDER, conversationLines, saveProviderSnapshot, speakerVoiceMap, text, isConversationMode, projectTitle, pauseDuration, requestDelay, concurrencyLimit, router]);
+
+  const returnToPreviousProvider = useCallback(() => {
+    if (!switchedFromProvider) return;
+    const snapshot = getProviderSnapshot(switchedFromProvider);
+    if (snapshot) {
+      const payload = {
+        source: CURRENT_PROVIDER,
+        target: switchedFromProvider,
+        text: String(snapshot.text || ""),
+        isConversationMode: Boolean(snapshot.isConversationMode),
+        conversationLines: Array.isArray(snapshot.conversationLines) ? snapshot.conversationLines : [],
+        projectTitle: String(snapshot.projectTitle || ""),
+        pauseDuration: Number(snapshot.pauseDuration || 300),
+        requestDelay: Number(snapshot.requestDelay || 3000),
+        concurrencyLimit: Number(snapshot.concurrencyLimit || 3),
+        speakerVoiceMap: snapshot.speakerVoiceMap && typeof snapshot.speakerVoiceMap === "object" ? snapshot.speakerVoiceMap : {},
+        requiresVoiceRemap: false,
+        migratedAt: Date.now(),
+      };
+      localStorage.setItem(VOICE_MIGRATION_STORAGE_KEY, JSON.stringify(payload));
+      router.push(switchedFromProvider === "ai84" ? "/dashboard/voice" : "/dashboard/voice-ai33");
+      return;
+    }
+    migrateToProvider(switchedFromProvider);
+  }, [CURRENT_PROVIDER, getProviderSnapshot, migrateToProvider, router, switchedFromProvider]);
 
   const getDeviceCode = useCallback(() => {
     if (typeof window === 'undefined') return 'unknown';
@@ -253,7 +322,9 @@ export default function VoicePage() {
       if (Array.isArray(payload.conversationLines)) {
         skipAutoParseRef.current = true;
         setConversationLines(payload.conversationLines as ConversationLine[]);
-        setNeedsVoiceRemapAfterSwitch(true);
+        const requiresVoiceRemap = payload?.requiresVoiceRemap !== false;
+        setNeedsVoiceRemapAfterSwitch(requiresVoiceRemap);
+        if (requiresVoiceRemap) setShowSwitchReminderModal(true);
       }
       if (payload.speakerVoiceMap && typeof payload.speakerVoiceMap === "object") {
         setSpeakerVoiceMap(payload.speakerVoiceMap as Record<string, string>);
@@ -261,8 +332,19 @@ export default function VoicePage() {
       if (payload.source === "ai33" || payload.source === "ai84") {
         setSwitchedFromProvider(payload.source);
       }
+
+      saveProviderSnapshot(CURRENT_PROVIDER, {
+        text: typeof payload.text === "string" ? payload.text : "",
+        isConversationMode: Boolean(payload.isConversationMode),
+        conversationLines: Array.isArray(payload.conversationLines) ? payload.conversationLines : [],
+        projectTitle: typeof payload.projectTitle === "string" ? payload.projectTitle : "",
+        pauseDuration: typeof payload.pauseDuration === "number" ? payload.pauseDuration : 300,
+        requestDelay: typeof payload.requestDelay === "number" ? payload.requestDelay : 3000,
+        concurrencyLimit: typeof payload.concurrencyLimit === "number" ? payload.concurrencyLimit : 3,
+        speakerVoiceMap: payload.speakerVoiceMap && typeof payload.speakerVoiceMap === "object" ? payload.speakerVoiceMap : {},
+      });
     } catch {}
-  }, []);
+  }, [CURRENT_PROVIDER, saveProviderSnapshot]);
 
   useEffect(() => {
     try {
@@ -632,11 +714,11 @@ export default function VoicePage() {
     }
   };
 
-  const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<void> => {
+  const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<boolean> => {
     const MAX_LINE_RETRY = 1;
     const RETRY_DELAY_MS = 2000;
     const voiceId = speakerVoiceMap[line.speaker];
-    if (!voiceId) { setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Chưa chọn giọng" } : l)); return; }
+    if (!voiceId) { setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Chưa chọn giọng" } : l)); return false; }
 
     setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "pending", error: "Đang gửi yêu cầu..." } : l));
     try {
@@ -655,7 +737,7 @@ export default function VoicePage() {
           return processLine(line, keyIdx, retryCount + 1);
         }
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Bị giới hạn tạm thời, bấm 'Thử lại các câu lỗi' để chạy tiếp ngay." } : l));
-        return;
+        return false;
       }
       const result = await res.json();
       if (result.success) {
@@ -664,45 +746,78 @@ export default function VoicePage() {
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, jobId: result.job_id, error: `[✓ ${result._keyHealth?.usedKey || 'Key'}] Đang chờ xử lý...` } : l));
         const url = await pollJobStatus(result.job_id, line.id, keyIdx);
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "done", audioUrl: url, error: undefined } : l));
+        return false;
       } else {
         if (result._keyHealth?.deadKeys) setDeadKeyList(result._keyHealth.deadKeys);
         const keyLabel = result._keyHealth?.usedKey || 'Key';
+        const alive = Number(result?._keyHealth?.aliveKeys ?? 1);
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: `[${keyLabel}] ${result.message}` } : l));
+        return alive <= 0;
       }
-    } catch {
-      setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Lỗi kết nối" } : l));
+    } catch (err: any) {
+      const msg = String(err?.message || "");
+      const isHardStop = msg.toLowerCase().includes("không có api key khả dụng") || msg.toLowerCase().includes("het key");
+      setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: isHardStop ? "Het key song. Bam chay lai thu cong." : "Lỗi kết nối" } : l));
+      return isHardStop;
     }
+    return false;
   };
+
+  const runConversationQueue = useCallback(async (
+    lines: ConversationLine[],
+    waitingText: string
+  ) => {
+    const numKeys = Math.max(aliveKeys || keyCount, 1);
+    const workersCount = Math.max(1, Math.min(lines.length, numKeys * Math.max(1, concurrencyLimit)));
+    const queue = [...lines];
+    let hardStopAll = false;
+
+    setConversationLines(prev => prev.map((l) => {
+      const shouldQueue = queue.some((q) => q.id === l.id);
+      return shouldQueue ? { ...l, status: "waiting", error: waitingText } : l;
+    }));
+
+    const workers = Array.from({ length: workersCount }, (_, workerIdx) => {
+      const keyIdx = workerIdx % numKeys;
+      const phase = Math.floor(workerIdx / numKeys);
+      return (async () => {
+        if (phase > 0) {
+          await new Promise(r => setTimeout(r, phase * 250));
+        }
+        while (!hardStopAll) {
+          const line = queue.shift();
+          if (!line) break;
+          await new Promise(r => setTimeout(r, Math.max(0, requestDelay)));
+          const hardStop = await processLine(line, keyIdx);
+          if (hardStop) {
+            hardStopAll = true;
+            setError("Tat ca key dang khong kha dung. Da dung tien trinh, ban co the bam chay lai ngay.");
+            setConversationLines(prev => prev.map((item) => {
+              if (item.status === "waiting" || item.status === "pending") {
+                return { ...item, status: "failed", error: "Da dung som vi het key song. Bam 'Thử lại các câu lỗi'." };
+              }
+              return item;
+            }));
+            break;
+          }
+        }
+      })();
+    });
+
+    await Promise.all(workers);
+    await refreshKeyHealth();
+  }, [aliveKeys, keyCount, concurrencyLimit, requestDelay, processLine, refreshKeyHealth]);
 
   const generateConversationTTS = async () => {
     const linesToProcess = conversationLines.filter(l => l.status !== "done");
     if (!ensureConversationVoicesSelected(linesToProcess)) return;
+    if (needsVoiceRemapAfterSwitch) {
+      setShowSwitchReminderModal(true);
+      setError("Vui lòng xác nhận popup và chỉ chạy lại các câu lỗi sau khi chuyển hệ.");
+      return;
+    }
     setIsGenerating(true); setError(null);
-    setConversationLines(prev => prev.map(l => l.status === "idle" || l.status === "failed" ? { ...l, status: "waiting", error: "Đang trong hàng đợi..." } : l));
-
-    // Phân phối lines vào các key slots — dùng ALIVE keys thay vì tổng
-    const numKeys = Math.max(aliveKeys || keyCount, 1);
-    const segments: ConversationLine[][] = Array.from({ length: numKeys }, () => []);
-    linesToProcess.forEach((line, index) => { segments[index % numKeys].push(line); });
-
-    const workers = segments.map(async (segment, keyIdx) => {
-      const queue = [...segment];
-      const runNext = async () => {
-        if (queue.length === 0) return;
-        const line = queue.shift()!;
-        await new Promise(r => setTimeout(r, requestDelay));
-        await processLine(line, keyIdx);
-        if (queue.length > 0) await runNext();
-      };
-      const segmentConcurrency = Math.min(concurrencyLimit, queue.length);
-      const segmentWorkers = [];
-      for (let i = 0; i < segmentConcurrency; i++) {
-        segmentWorkers.push((async () => { await new Promise(r => setTimeout(r, i * 3000)); return runNext(); })());
-      }
-      await Promise.all(segmentWorkers);
-    });
-    await Promise.all(workers);
-    await refreshKeyHealth(); // Cập nhật health sau khi xử lý xong
+    await runConversationQueue(linesToProcess, "Đang trong hàng đợi...");
     setIsGenerating(false);
   };
 
@@ -710,20 +825,8 @@ export default function VoicePage() {
     const failedLines = conversationLines.filter(l => l.status === "failed");
     if (failedLines.length === 0) return;
     if (!ensureConversationVoicesSelected(failedLines)) return;
-    setIsGenerating(true);
-    setConversationLines(prev => prev.map(l => l.status === "failed" ? { ...l, status: "waiting", error: "Đang thử lại..." } : l));
-
-    const numKeys = Math.max(aliveKeys || keyCount, 1);
-    const segments: ConversationLine[][] = Array.from({ length: numKeys }, () => []);
-    failedLines.forEach((line, i) => { segments[i % numKeys].push(line); });
-    const workers = segments.map(async (segment, keyIdx) => {
-      for (const line of segment) {
-        await new Promise(r => setTimeout(r, requestDelay));
-        await processLine(line, keyIdx);
-      }
-    });
-    await Promise.all(workers);
-    await refreshKeyHealth();
+    setIsGenerating(true); setError(null);
+    await runConversationQueue(failedLines, "Đang thử lại...");
     setIsGenerating(false);
   };
 
@@ -1382,9 +1485,9 @@ export default function VoicePage() {
               {/* Action Buttons */}
               <div className="mt-4 space-y-3">
                 <div className="flex items-center gap-3">
-                  <button onClick={generateTTS} disabled={isGenerating || keyCount === 0}
-                    className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all ${isGenerating || keyCount === 0 ? "bg-white/5 text-slate-600 cursor-not-allowed" : "btn-ombre text-white shadow-lg shadow-indigo-500/20 active:scale-[0.98]"}`}>
-                    {isGenerating ? <><Loader2 className="animate-spin" size={20}/>Đang xử lý...</> : <><Play size={20} fill="currentColor"/>{isConversationMode ? "Tạo Hội Thoại" : "Bắt Đầu Chuyển Đổi"}</>}
+                  <button onClick={generateTTS} disabled={isGenerating || keyCount === 0 || (isConversationMode && needsVoiceRemapAfterSwitch)}
+                    className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 transition-all ${isGenerating || keyCount === 0 || (isConversationMode && needsVoiceRemapAfterSwitch) ? "bg-white/5 text-slate-600 cursor-not-allowed" : "btn-ombre text-white shadow-lg shadow-indigo-500/20 active:scale-[0.98]"}`}>
+                    {isGenerating ? <><Loader2 className="animate-spin" size={20}/>Đang xử lý...</> : <><Play size={20} fill="currentColor"/>{isConversationMode ? (needsVoiceRemapAfterSwitch ? "Đang khoá sau chuyển hệ" : "Tạo Hội Thoại") : "Bắt Đầu Chuyển Đổi"}</>}
                   </button>
                   {isConversationMode && conversationLines.some(l => l.status !== "idle") && !isGenerating && (
                     <button onClick={() => {
@@ -1398,6 +1501,14 @@ export default function VoicePage() {
                   <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-[11px] text-amber-300">
                     Đã chuyển hệ từ {switchedFromProvider?.toUpperCase() || "hệ khác"}. Vui lòng chọn lại giọng cho các nhân vật chưa xong trước khi chạy.
                   </div>
+                )}
+                {isConversationMode && switchedFromProvider && !isGenerating && (
+                  <button
+                    onClick={returnToPreviousProvider}
+                    className="w-full py-3 bg-white/5 border border-white/10 text-slate-300 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 hover:bg-white/10 transition-all"
+                  >
+                    <RefreshCw size={16}/> Quay về {switchedFromProvider.toUpperCase()}
+                  </button>
                 )}
 
                 {isConversationMode && conversationLines.some(l => l.status === "failed") && (
@@ -1502,6 +1613,42 @@ export default function VoicePage() {
           </div>
         </div>
       </main>
+
+      <AnimatePresence>
+        {showSwitchReminderModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setShowSwitchReminderModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className="w-full max-w-xl glass-card rounded-[2rem] p-6 border border-amber-500/20 space-y-4"
+            >
+              <h3 className="text-base font-bold text-amber-300">Đã chuyển hệ sang AI33</h3>
+              <p className="text-sm text-slate-200 leading-relaxed">
+                Bạn vừa chuyển hệ. Hãy kiểm tra và chọn lại giọng đúng cho từng nhân vật trước khi chạy để tránh tốn ký tự không cần thiết.
+              </p>
+              <p className="text-xs text-slate-400">
+                Mặc định hãy dùng <span className="text-rose-300 font-bold">Thử lại các câu lỗi</span>. Nếu bấm nhầm, dùng nút <span className="text-slate-200 font-bold">Quay về {switchedFromProvider?.toUpperCase() || "hệ trước"}</span>.
+              </p>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowSwitchReminderModal(false)}
+                  className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-200 font-bold text-sm hover:bg-amber-500/30 transition-all"
+                >
+                  Tôi đã hiểu
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Clone Voice Modal */}
       <AnimatePresence>
