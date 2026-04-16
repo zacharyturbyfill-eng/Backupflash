@@ -174,6 +174,7 @@ export default function Medical3Page() {
   const [seoPackage, setSeoPackage] = useState<SeoPackage | null>(null);
   const [showSeoBox, setShowSeoBox] = useState(false);
   const [copiedSeo, setCopiedSeo] = useState(false);
+  const [generatingSeo, setGeneratingSeo] = useState(false);
   const [showKidsWarnStep1, setShowKidsWarnStep1] = useState(false);
   const [reminderStep, setReminderStep] = useState(1);
   const [reminderAgree, setReminderAgree] = useState(false);
@@ -246,17 +247,6 @@ export default function Medical3Page() {
     }
     setIsProcessing(true);
     setProgress(1);
-    setSeoPackage(null);
-    const seoPromise = fetch('/api/medical3', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'generate_seo',
-        userId: user.id,
-        provider,
-        transcript,
-      }),
-    }).then((r) => r.json()).catch(() => null);
     try {
       const { lines, startTimeMs, endTimeMs } = parseTranscript(transcript);
       if (lines.length === 0) {
@@ -314,12 +304,6 @@ export default function Medical3Page() {
       const saveJson = await saveRes.json();
       if (!saveRes.ok) throw new Error(saveJson.error || 'Lỗi lưu lịch sử');
 
-      const seoJson = await seoPromise;
-      if (seoJson?.seo) {
-        setSeoPackage(seoJson.seo);
-        setShowSeoBox(true);
-      }
-
       fetchHistory(user.id);
     } catch (error: any) {
       alert(error?.message || 'Đã có lỗi xảy ra. Vui lòng thử lại.');
@@ -341,23 +325,50 @@ export default function Medical3Page() {
 
   const copySeoPackage = () => {
     if (!seoPackage) return;
-    const text = [
-      seoPackage.title,
-      '',
-      seoPackage.description,
-      '',
-      'TIMESTAMPS:',
-      ...seoPackage.timestamps.map((t, i) => `${i + 1}. ${t}`),
-      '',
-      'HASHTAGS:',
-      seoPackage.hashtags.join(' '),
-      '',
-      'KEYWORDS SEO:',
-      seoPackage.keywords.join(', '),
-    ].join('\n');
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(buildSeoText(seoPackage));
     setCopiedSeo(true);
     setTimeout(() => setCopiedSeo(false), 1800);
+  };
+
+  const buildSeoText = (pkg: SeoPackage) => {
+    return [
+      pkg.title,
+      '',
+      pkg.description,
+      '',
+      'NỘI DUNG CHI TIẾT (TIME STAMPS):',
+      ...pkg.timestamps,
+      '',
+      pkg.hashtags.join(' '),
+      '',
+      `TỪ KHÓA SEO BỔ SUNG: ${pkg.keywords.join(', ')}`,
+    ].join('\n');
+  };
+
+  const handleGenerateSeo = async () => {
+    if (!transcript.trim() || !user?.id || generatingSeo) return;
+    setGeneratingSeo(true);
+    try {
+      const response = await fetch('/api/medical3', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate_seo',
+          userId: user.id,
+          provider,
+          transcript,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || 'Lỗi tạo mô tả video YouTube');
+      if (!json?.seo) throw new Error('API chưa trả về dữ liệu mô tả.');
+      setSeoPackage(json.seo);
+      setShowSeoBox(true);
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi tạo mô tả video YouTube');
+    } finally {
+      setGeneratingSeo(false);
+    }
   };
 
   if (!user) return <div className="min-h-screen bg-slate-900" />;
@@ -460,7 +471,7 @@ export default function Medical3Page() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-black uppercase tracking-widest text-blue-300">Mô Tả Video SEO</p>
-              <p className="text-[10px] text-slate-500">Sinh tự động cùng lúc với Prompt Medical 3.0</p>
+              <p className="text-[10px] text-slate-500">Tạo riêng cho video YouTube chuẩn SEO</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -476,21 +487,17 @@ export default function Medical3Page() {
                 disabled={!seoPackage}
                 className="px-4 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-[10px] font-bold uppercase tracking-widest text-indigo-100 disabled:opacity-40"
               >
-                {copiedSeo ? 'Đã Copy' : 'Copy SEO'}
+                {copiedSeo ? 'Đã Copy' : 'Copy Mô Tả'}
               </button>
             </div>
           </div>
           {showSeoBox && (
             <div className="mt-3 rounded-xl bg-slate-950 border border-slate-800 p-4">
               {!seoPackage ? (
-                <p className="text-xs text-slate-500 italic">Chưa có dữ liệu SEO. Hãy tạo prompt để hệ thống sinh mô tả.</p>
+                <p className="text-xs text-slate-500 italic">Chưa có dữ liệu mô tả. Hãy bấm nút "Tạo mô tả YouTube chuẩn SEO".</p>
               ) : (
                 <div className="space-y-3 text-sm text-slate-200">
-                  <p><span className="text-blue-300 font-bold">Tiêu đề:</span> {seoPackage.title}</p>
-                  <p className="whitespace-pre-wrap"><span className="text-blue-300 font-bold">Mô tả:</span> {seoPackage.description}</p>
-                  <p><span className="text-blue-300 font-bold">Timestamps ({seoPackage.timestamps.length}):</span> {seoPackage.timestamps.join(' | ')}</p>
-                  <p><span className="text-blue-300 font-bold">Hashtags ({seoPackage.hashtags.length}):</span> {seoPackage.hashtags.join(' ')}</p>
-                  <p><span className="text-blue-300 font-bold">Keywords ({seoPackage.keywords.length}):</span> {seoPackage.keywords.join(', ')}</p>
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">{buildSeoText(seoPackage)}</pre>
                 </div>
               )}
             </div>
@@ -605,10 +612,27 @@ export default function Medical3Page() {
                   </span>
                 </div>
               ) : (
-                <button onClick={handleGenerate} disabled={!transcript.trim()} className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg transform transition active:scale-[0.98] flex items-center justify-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
-                  Tạo Prompts (Text Only)
-                </button>
+                <div className="space-y-2">
+                  <button onClick={handleGenerate} disabled={!transcript.trim()} className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg transform transition active:scale-[0.98] flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                    Tạo Prompts (Text Only)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateSeo}
+                    disabled={generatingSeo || !transcript.trim()}
+                    className="w-full h-11 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-200 text-xs font-bold uppercase tracking-widest disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {generatingSeo ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4 text-blue-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                        Đang tạo mô tả YouTube...
+                      </>
+                    ) : (
+                      'Tạo mô tả YouTube chuẩn SEO'
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>

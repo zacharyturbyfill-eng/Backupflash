@@ -44,6 +44,7 @@ export default function PrompterPage() {
   const [seoPackage, setSeoPackage] = useState<SeoPackage | null>(null);
   const [showSeoBox, setShowSeoBox] = useState(false);
   const [copiedSeo, setCopiedSeo] = useState(false);
+  const [generatingSeo, setGeneratingSeo] = useState(false);
   const [showKidsWarnStep1, setShowKidsWarnStep1] = useState(false);
   const [reminderStep, setReminderStep] = useState(1);
   const [reminderAgree, setReminderAgree] = useState(false);
@@ -158,24 +159,12 @@ export default function PrompterPage() {
     }
     setLoading(true);
     setProgress(0);
-    setSeoPackage(null);
     
     const allSegments = getSegments(inputText);
     setResults(allSegments); // Hiển thị khung trước khi có prompt
 
     const chunkSize = 10;
     const finalResults = [...allSegments];
-    const seoPromise = fetch('/api/prompt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'generate_seo',
-        transcript: inputText,
-        userId: user.id,
-        provider,
-      }),
-    }).then((r) => r.json()).catch(() => null);
-
     try {
       for (let i = 0; i < allSegments.length; i += chunkSize) {
         const chunk = allSegments.slice(i, i + chunkSize);
@@ -221,12 +210,6 @@ export default function PrompterPage() {
         }),
       });
 
-      const seoJson = await seoPromise;
-      if (seoJson?.seo) {
-        setSeoPackage(seoJson.seo);
-        setShowSeoBox(true);
-      }
-
       fetchHistory(user.id);
     } catch (err: any) {
       alert(err.message || 'Lỗi tạo Prompt');
@@ -251,25 +234,52 @@ export default function PrompterPage() {
     setTimeout(() => setCopiedAll(null as any), 2000);
   };
 
+  const buildSeoText = (pkg: SeoPackage) => {
+    return [
+      pkg.title,
+      '',
+      pkg.description,
+      '',
+      'NỘI DUNG CHI TIẾT (TIME STAMPS):',
+      ...pkg.timestamps,
+      '',
+      pkg.hashtags.join(' '),
+      '',
+      `TỪ KHÓA SEO BỔ SUNG: ${pkg.keywords.join(', ')}`,
+    ].join('\n');
+  };
+
   const copySeoPackage = () => {
     if (!seoPackage) return;
-    const text = [
-      seoPackage.title,
-      '',
-      seoPackage.description,
-      '',
-      'TIMESTAMPS:',
-      ...seoPackage.timestamps.map((t, i) => `${i + 1}. ${t}`),
-      '',
-      'HASHTAGS:',
-      seoPackage.hashtags.join(' '),
-      '',
-      'KEYWORDS SEO:',
-      seoPackage.keywords.join(', '),
-    ].join('\n');
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(buildSeoText(seoPackage));
     setCopiedSeo(true);
     setTimeout(() => setCopiedSeo(false), 1800);
+  };
+
+  const handleGenerateSeo = async () => {
+    if (!inputText.trim() || !user?.id || generatingSeo) return;
+    setGeneratingSeo(true);
+    try {
+      const response = await fetch('/api/prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate_seo',
+          transcript: inputText,
+          userId: user.id,
+          provider,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || 'Lỗi tạo mô tả video YouTube');
+      if (!json?.seo) throw new Error('API chưa trả về dữ liệu mô tả.');
+      setSeoPackage(json.seo);
+      setShowSeoBox(true);
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi tạo mô tả video YouTube');
+    } finally {
+      setGeneratingSeo(false);
+    }
   };
   const getUserReminder = async (): Promise<UserPromptReminder | null> => {
     if (!user?.id) return null;
@@ -416,7 +426,7 @@ export default function PrompterPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-black uppercase tracking-widest text-indigo-300">Mô Tả Video SEO</p>
-              <p className="text-[10px] text-slate-500">Sinh tự động cùng lúc với prompt video</p>
+              <p className="text-[10px] text-slate-500">Tạo riêng cho video YouTube chuẩn SEO</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -432,21 +442,17 @@ export default function PrompterPage() {
                 disabled={!seoPackage}
                 className="px-4 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-[10px] font-black uppercase tracking-widest border border-indigo-400/30 disabled:opacity-40"
               >
-                {copiedSeo ? 'Đã Copy' : 'Copy SEO'}
+                {copiedSeo ? 'Đã Copy' : 'Copy Mô Tả'}
               </button>
             </div>
           </div>
           {showSeoBox && (
             <div className="mt-4 rounded-2xl bg-black/30 border border-white/10 p-4">
               {!seoPackage ? (
-                <p className="text-xs text-slate-500 italic">Chưa có dữ liệu SEO. Hãy tạo prompt để hệ thống sinh mô tả.</p>
+                <p className="text-xs text-slate-500 italic">Chưa có dữ liệu mô tả. Hãy bấm nút "Tạo mô tả YouTube chuẩn SEO".</p>
               ) : (
                 <div className="space-y-3 text-sm text-slate-200">
-                  <p><span className="text-indigo-300 font-bold">Tiêu đề:</span> {seoPackage.title}</p>
-                  <p className="whitespace-pre-wrap"><span className="text-indigo-300 font-bold">Mô tả:</span> {seoPackage.description}</p>
-                  <p><span className="text-indigo-300 font-bold">Timestamps ({seoPackage.timestamps.length}):</span> {seoPackage.timestamps.join(' | ')}</p>
-                  <p><span className="text-indigo-300 font-bold">Hashtags ({seoPackage.hashtags.length}):</span> {seoPackage.hashtags.join(' ')}</p>
-                  <p><span className="text-indigo-300 font-bold">Keywords ({seoPackage.keywords.length}):</span> {seoPackage.keywords.join(', ')}</p>
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">{buildSeoText(seoPackage)}</pre>
                 </div>
               )}
             </div>
@@ -512,6 +518,15 @@ export default function PrompterPage() {
                <button onClick={handleGenerate} disabled={loading || !inputText} className="w-full btn-ombre py-4 rounded-2xl font-bold transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-30">
                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Video className="w-5 h-5" />}
                  {loading ? `Đang xử lý... (${Math.round(progress)}%)` : 'Tạo Visual Prompts'}
+               </button>
+               <button
+                 type="button"
+                 onClick={handleGenerateSeo}
+                 disabled={generatingSeo || !inputText.trim()}
+                 className="mt-3 w-full py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-400/30 text-indigo-100 disabled:opacity-40 flex items-center justify-center gap-2"
+               >
+                 {generatingSeo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                 {generatingSeo ? 'Đang tạo mô tả YouTube...' : 'Tạo mô tả YouTube chuẩn SEO'}
                </button>
             </div>
           </div>

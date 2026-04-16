@@ -14,20 +14,120 @@ type SeoPackage = {
   keywords: string[];
 };
 
-function normalizeSeoPackage(input: any): SeoPackage {
+const STOPWORDS = new Set([
+  'va', 'và', 'la', 'là', 'cua', 'của', 'cho', 'trong', 'nhung', 'những', 'mot', 'một', 'cac', 'các',
+  'voi', 'với', 'khi', 'sau', 'truoc', 'trước', 'duoc', 'được', 'the', 'thể', 'nay', 'này', 'do', 'đó',
+  'co', 'có', 'khong', 'không', 'se', 'sẽ', 'den', 'đến', 'tu', 'từ', 'tren', 'trên', 'noi', 'nội', 'dung',
+  'youtube', 'video', 'transcripts', 'transcript'
+]);
+
+function parseToSeconds(raw: string): number | null {
+  const hhmmss = raw.match(/(\d{2}):(\d{2}):(\d{2})/);
+  if (hhmmss) return Number(hhmmss[1]) * 3600 + Number(hhmmss[2]) * 60 + Number(hhmmss[3]);
+  const mmss = raw.match(/(\d{2}):(\d{2})/);
+  if (mmss) return Number(mmss[1]) * 60 + Number(mmss[2]);
+  return null;
+}
+
+function formatTimestamp(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return h > 0
+    ? `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
+    : `${m.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+}
+
+function extractDurationSeconds(transcript: string): number {
+  const matches = transcript.match(/\d{2}:\d{2}(?::\d{2})?/g) || [];
+  let maxSec = 0;
+  for (const match of matches) {
+    const sec = parseToSeconds(match);
+    if (sec && sec > maxSec) maxSec = sec;
+  }
+  return Math.max(maxSec, 600);
+}
+
+function extractTitle(transcript: string): string {
+  const lines = transcript.replace(/\r\n/g, '\n').split('\n').map((s) => s.trim()).filter(Boolean);
+  const found = lines.find((line) => {
+    const lower = line.toLowerCase();
+    if (lower === 'transcripts:' || lower === 'transcript:') return false;
+    if (/^\(?\d{2}:\d{2}/.test(line)) return false;
+    return line.length > 10;
+  });
+  return (found || 'Mô tả video YouTube chuẩn SEO').slice(0, 180);
+}
+
+function extractTopTokens(transcript: string, max = 30): string[] {
+  const raw = transcript
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+  const count = new Map<string, number>();
+  for (const token of raw) count.set(token, (count.get(token) || 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, max);
+}
+
+function toHashtag(word: string): string {
+  return `#${word.replace(/\s+/g, '')}`;
+}
+
+function buildFallbackTimestamps(transcript: string): string[] {
+  const duration = extractDurationSeconds(transcript);
+  const out: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const sec = Math.floor((duration * i) / 9);
+    out.push(`${formatTimestamp(sec)} - Mốc nội dung chính ${i + 1}`);
+  }
+  return out;
+}
+
+function buildFallbackDescription(transcript: string, title: string): string {
+  const plain = transcript.replace(/\r\n/g, '\n').replace(/\n+/g, ' ').trim();
+  const excerpt = plain.slice(0, 700);
+  return [
+    `Chào mừng quý vị quay trở lại kênh. Trong video "${title}", chúng ta sẽ cùng đi qua các nội dung nổi bật một cách dễ hiểu và thực tế.`,
+    `Nội dung chính bám sát transcript gốc: ${excerpt}${plain.length > 700 ? '...' : ''}`,
+    'Mời quý vị theo dõi phần mốc thời gian chi tiết bên dưới để xem nhanh từng chủ đề quan trọng.',
+  ].join('\n\n');
+}
+
+function normalizeSeoPackage(input: any, transcript: string): SeoPackage {
+  const topTokens = extractTopTokens(transcript, 40);
   const timestamps = Array.isArray(input?.timestamps) ? input.timestamps : [];
   const hashtags = Array.isArray(input?.hashtags) ? input.hashtags : [];
   const keywords = Array.isArray(input?.keywords) ? input.keywords : [];
+  const normalizedTimestamps = timestamps.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 10);
+  const normalizedHashtags = hashtags
+    .map((h: any) => String(h).trim().replace(/\s+/g, ''))
+    .filter(Boolean)
+    .map((h: string) => (h.startsWith('#') ? h : `#${h}`));
+  const normalizedKeywords = keywords.map((k: any) => String(k).trim()).filter(Boolean);
+
+  while (normalizedHashtags.length < 20 && topTokens.length > normalizedHashtags.length) {
+    normalizedHashtags.push(toHashtag(topTokens[normalizedHashtags.length]));
+  }
+  while (normalizedKeywords.length < 20 && topTokens.length > normalizedKeywords.length) {
+    normalizedKeywords.push(topTokens[normalizedKeywords.length]);
+  }
+  while (normalizedHashtags.length < 20) normalizedHashtags.push(`#seo${normalizedHashtags.length + 1}`);
+  while (normalizedKeywords.length < 20) normalizedKeywords.push(`tu-khoa-${normalizedKeywords.length + 1}`);
+
+  const title = String(input?.title || extractTitle(transcript)).trim().slice(0, 200);
+  const description = String(input?.description || '').trim() || buildFallbackDescription(transcript, title);
+
   return {
-    title: String(input?.title || '').trim().slice(0, 200),
-    description: String(input?.description || '').trim(),
-    timestamps: timestamps.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 10),
-    hashtags: hashtags
-      .map((h: any) => String(h).trim().replace(/\s+/g, ''))
-      .filter(Boolean)
-      .map((h: string) => (h.startsWith('#') ? h : `#${h}`))
-      .slice(0, 20),
-    keywords: keywords.map((k: any) => String(k).trim()).filter(Boolean).slice(0, 20),
+    title,
+    description,
+    timestamps: (normalizedTimestamps.length > 0 ? normalizedTimestamps : buildFallbackTimestamps(transcript)).slice(0, 10),
+    hashtags: normalizedHashtags.slice(0, 20),
+    keywords: normalizedKeywords.slice(0, 20),
   };
 }
 
@@ -37,19 +137,19 @@ async function generateSeoByProvider(
   transcript: string
 ): Promise<SeoPackage> {
   const prompt = `Bạn là chuyên gia SEO YouTube tiếng Việt.
-Nhiệm vụ: từ transcript sau, tạo gói SEO trả về JSON đúng schema:
+Nhiệm vụ: từ transcript sau, tạo mô tả video YouTube chuẩn SEO và trả về JSON đúng schema:
 {
   "title": "string",
-  "description": "string",
-  "timestamps": ["... tối đa 10 mốc thời gian từ đầu đến cuối ..."],
+  "description": "mở đầu hấp dẫn + 2-3 đoạn mô tả rõ nội dung, phong cách tự nhiên, không bịa dữ kiện ngoài transcript",
+  "timestamps": ["... đúng 10 mốc từ đầu đến cuối, định dạng 00:00 - mô tả ngắn ..."],
   "hashtags": ["... đúng 20 hashtag ..."],
   "keywords": ["... đúng 20 từ khóa SEO ..."]
 }
 
 Yêu cầu bắt buộc:
-1) Description chuẩn SEO, tự nhiên, dễ đọc, bám sát nội dung transcript.
-2) timestamps phải có 10 mốc, phân bố từ đầu đến cuối video, định dạng ưu tiên HH:MM:SS hoặc MM:SS.
-3) hashtags đúng 20 mục, ngắn gọn, liên quan nội dung.
+1) Description phải dùng được ngay cho phần mô tả video YouTube.
+2) timestamps đúng 10 mốc, phân bố từ đầu đến cuối video.
+3) hashtags đúng 20 mục, mỗi hashtag bắt đầu bằng #.
 4) keywords đúng 20 mục, đa dạng, liên quan nội dung.
 5) Không thêm giải thích ngoài JSON.
 
@@ -64,7 +164,7 @@ ${transcript.slice(0, 120000)}`;
       messages: [{ role: 'user', content: prompt }],
     });
     const raw = completion.choices[0]?.message?.content || '{}';
-    return normalizeSeoPackage(JSON.parse(raw));
+    return normalizeSeoPackage(JSON.parse(raw), transcript);
   }
 
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
@@ -87,7 +187,7 @@ ${transcript.slice(0, 120000)}`;
     },
   });
   const raw = response.text || '{}';
-  return normalizeSeoPackage(JSON.parse(raw));
+  return normalizeSeoPackage(JSON.parse(raw), transcript);
 }
 
 const getSystemInstruction = (settings: any) => {
