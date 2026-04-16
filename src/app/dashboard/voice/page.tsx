@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import JSZip from "jszip";
 import {
   Mic, Play, Download, RefreshCw, User, Type,
@@ -38,6 +38,7 @@ interface PronunciationFixRule {
 
 const FIX_RULES_STORAGE_KEY = "voice_pronunciation_fix_rules_v1";
 const VOICE_MIGRATION_STORAGE_KEY = "voice_cross_provider_migration_v1";
+const SPEAKER_VOICE_MAP_STORAGE_KEY = "voice84_speaker_voice_map_v1";
 const DEFAULT_FIX_RULES: PronunciationFixRule[] = [
   { id: "r1", from: "im lặng", to: "yên lặng" },
   { id: "r2", from: "ml", to: "mililit" },
@@ -98,7 +99,7 @@ export default function VoicePage() {
   const [conversationLines, setConversationLines] = useState<ConversationLine[]>([]);
   const [speakerVoiceMap, setSpeakerVoiceMap] = useState<Record<string, string>>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem("portal_speaker_voice_map");
+      const saved = localStorage.getItem(SPEAKER_VOICE_MAP_STORAGE_KEY);
       return saved ? JSON.parse(saved) : {};
     }
     return {};
@@ -136,6 +137,9 @@ export default function VoicePage() {
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
   const [projectTitle, setProjectTitle] = useState<string>("");
+  const [needsVoiceRemapAfterSwitch, setNeedsVoiceRemapAfterSwitch] = useState(false);
+  const [switchedFromProvider, setSwitchedFromProvider] = useState<"ai84" | "ai33" | null>(null);
+  const skipAutoParseRef = useRef(false);
 
   const migrateToProvider = useCallback((target: "ai84" | "ai33") => {
     const hasWork = conversationLines.some((l) => l.status !== "idle" || Boolean(l.audioUrl));
@@ -175,7 +179,7 @@ export default function VoicePage() {
       migratedAt: Date.now(),
     };
     localStorage.setItem(VOICE_MIGRATION_STORAGE_KEY, JSON.stringify(payload));
-    localStorage.setItem("portal_speaker_voice_map", JSON.stringify(safeVoiceMap));
+    localStorage.setItem(SPEAKER_VOICE_MAP_STORAGE_KEY, JSON.stringify(safeVoiceMap));
     setSpeakerVoiceMap(safeVoiceMap);
     router.push(target === "ai33" ? "/dashboard/voice-ai33" : "/dashboard/voice");
   }, [conversationLines, speakerVoiceMap, text, isConversationMode, projectTitle, pauseDuration, requestDelay, concurrencyLimit, router]);
@@ -247,10 +251,15 @@ export default function VoicePage() {
       if (typeof payload.concurrencyLimit === "number") setConcurrencyLimit(payload.concurrencyLimit);
 
       if (Array.isArray(payload.conversationLines)) {
+        skipAutoParseRef.current = true;
         setConversationLines(payload.conversationLines as ConversationLine[]);
+        setNeedsVoiceRemapAfterSwitch(true);
       }
       if (payload.speakerVoiceMap && typeof payload.speakerVoiceMap === "object") {
         setSpeakerVoiceMap(payload.speakerVoiceMap as Record<string, string>);
+      }
+      if (payload.source === "ai33" || payload.source === "ai84") {
+        setSwitchedFromProvider(payload.source);
       }
     } catch {}
   }, []);
@@ -399,7 +408,7 @@ export default function VoicePage() {
 
   useEffect(() => {
     if (Object.keys(speakerVoiceMap).length > 0) {
-      localStorage.setItem("portal_speaker_voice_map", JSON.stringify(speakerVoiceMap));
+      localStorage.setItem(SPEAKER_VOICE_MAP_STORAGE_KEY, JSON.stringify(speakerVoiceMap));
     }
   }, [speakerVoiceMap]);
 
@@ -491,9 +500,35 @@ export default function VoicePage() {
     void saveFixRulesToServer(nextRules);
   };
 
+  const getMissingSpeakerMappings = useCallback((lines: ConversationLine[]) => {
+    const missing = new Set<string>();
+    lines.forEach((line) => {
+      if (line.status === "done" && line.audioUrl) return;
+      if (!speakerVoiceMap[line.speaker]) missing.add(line.speaker);
+    });
+    return Array.from(missing);
+  }, [speakerVoiceMap]);
+
+  const ensureConversationVoicesSelected = useCallback((lines: ConversationLine[]) => {
+    const missing = getMissingSpeakerMappings(lines);
+    if (missing.length === 0) {
+      setNeedsVoiceRemapAfterSwitch(false);
+      return true;
+    }
+    const preview = missing.slice(0, 4).join(", ");
+    const extra = missing.length > 4 ? ` +${missing.length - 4}` : "";
+    const fromLabel = switchedFromProvider ? ` sau khi chuyển từ ${switchedFromProvider.toUpperCase()}` : "";
+    setError(`Vui lòng chọn giọng cho: ${preview}${extra}${fromLabel}.`);
+    return false;
+  }, [getMissingSpeakerMappings, switchedFromProvider]);
+
   // Parse conversation lines
   useEffect(() => {
     if (isConversationMode) {
+      if (skipAutoParseRef.current) {
+        skipAutoParseRef.current = false;
+        return;
+      }
       const lines = text.split("\n").filter(l => l.trim() !== "");
       const parsed: ConversationLine[] = lines.map((line, idx) => {
         const match = line.match(/^([^:]+):\s*(.*)$/);
@@ -507,6 +542,8 @@ export default function VoicePage() {
         uniqueSpeakers.forEach(s => { if (!next[s] && selectedVoice) next[s] = selectedVoice; });
         return next;
       });
+      setNeedsVoiceRemapAfterSwitch(false);
+      setSwitchedFromProvider(null);
     }
   }, [text, isConversationMode, selectedVoice]);
 
@@ -651,6 +688,8 @@ export default function VoicePage() {
   };
 
   const generateConversationTTS = async () => {
+    const linesToProcess = conversationLines.filter(l => l.status !== "done");
+    if (!ensureConversationVoicesSelected(linesToProcess)) return;
     await refreshKeyHealth();
     let aliveNow = 0;
     try {
@@ -668,7 +707,6 @@ export default function VoicePage() {
     }
     setIsGenerating(true); setError(null);
     setConversationLines(prev => prev.map(l => l.status === "idle" || l.status === "failed" ? { ...l, status: "waiting", error: "Đang trong hàng đợi..." } : l));
-    const linesToProcess = conversationLines.filter(l => l.status !== "done");
 
     // Phân phối lines vào các key slots — dùng ALIVE keys thay vì tổng
     const numKeys = Math.max(aliveKeys || keyCount, 1);
@@ -711,6 +749,7 @@ export default function VoicePage() {
   const retryFailedLines = async () => {
     const failedLines = conversationLines.filter(l => l.status === "failed");
     if (failedLines.length === 0) return;
+    if (!ensureConversationVoicesSelected(failedLines)) return;
     await refreshKeyHealth();
     setIsGenerating(true);
     setConversationLines(prev => prev.map(l => l.status === "failed" ? { ...l, status: "waiting", error: "Đang thử lại..." } : l));
@@ -1396,9 +1435,18 @@ export default function VoicePage() {
                     {isGenerating ? <><Loader2 className="animate-spin" size={20}/>Đang xử lý...</> : <><Play size={20} fill="currentColor"/>{isConversationMode ? "Tạo Hội Thoại" : "Bắt Đầu Chuyển Đổi"}</>}
                   </button>
                   {isConversationMode && conversationLines.some(l => l.status !== "idle") && !isGenerating && (
-                    <button onClick={() => setConversationLines(prev => prev.map(l => ({ ...l, status: "idle" as const, audioUrl: undefined, error: undefined })))} className="p-4 bg-white/5 text-slate-500 rounded-2xl hover:bg-white/10 transition-all"><Trash2 size={20}/></button>
+                    <button onClick={() => {
+                      setNeedsVoiceRemapAfterSwitch(false);
+                      setSwitchedFromProvider(null);
+                      setConversationLines(prev => prev.map(l => ({ ...l, status: "idle" as const, audioUrl: undefined, error: undefined })));
+                    }} className="p-4 bg-white/5 text-slate-500 rounded-2xl hover:bg-white/10 transition-all"><Trash2 size={20}/></button>
                   )}
                 </div>
+                {isConversationMode && needsVoiceRemapAfterSwitch && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-[11px] text-amber-300">
+                    Đã chuyển hệ từ {switchedFromProvider?.toUpperCase() || "hệ khác"}. Vui lòng chọn lại giọng cho các nhân vật chưa xong trước khi chạy.
+                  </div>
+                )}
 
                 {isConversationMode && conversationLines.some(l => l.status === "failed") && (
                   <button onClick={retryFailedLines} disabled={isGenerating}
