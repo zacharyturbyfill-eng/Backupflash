@@ -530,13 +530,22 @@ export default function VoicePage() {
         return;
       }
       const lines = text.split("\n").filter(l => l.trim() !== "");
-      const parsed: ConversationLine[] = lines.map((line, idx) => {
+      const parsedBase: ConversationLine[] = lines.map((line, idx) => {
         const match = line.match(/^([^:]+):\s*(.*)$/);
         if (match) return { id: `line-${idx}`, speaker: match[1].trim(), text: match[2].trim(), status: "idle" as const };
         return { id: `line-${idx}`, speaker: "Unknown", text: line.trim(), status: "idle" as const };
       });
-      setConversationLines(parsed);
-      const uniqueSpeakers = Array.from(new Set(parsed.map(p => p.speaker)));
+      setConversationLines(prev => {
+        const prevById = new Map(prev.map((line) => [line.id, line]));
+        return parsedBase.map((line) => {
+          const old = prevById.get(line.id);
+          if (old && old.speaker === line.speaker && old.text === line.text) {
+            return { ...line, status: old.status, audioUrl: old.audioUrl, error: old.error, jobId: old.jobId };
+          }
+          return line;
+        });
+      });
+      const uniqueSpeakers = Array.from(new Set(parsedBase.map(p => p.speaker)));
       setSpeakerVoiceMap(prev => {
         const next = { ...prev };
         uniqueSpeakers.forEach(s => { if (!next[s] && selectedVoice) next[s] = selectedVoice; });
@@ -545,7 +554,7 @@ export default function VoicePage() {
       setNeedsVoiceRemapAfterSwitch(false);
       setSwitchedFromProvider(null);
     }
-  }, [text, isConversationMode, selectedVoice]);
+  }, [text, isConversationMode]);
 
   // --- Core TTS Logic ---
   const pollJobStatus = async (jobId: string, lineId?: string, keyIdx?: number): Promise<string> => {
