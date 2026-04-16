@@ -37,6 +37,7 @@ interface PronunciationFixRule {
 }
 
 const FIX_RULES_STORAGE_KEY = "voice_pronunciation_fix_rules_v1";
+const VOICE_MIGRATION_STORAGE_KEY = "voice_cross_provider_migration_v1";
 const DEFAULT_FIX_RULES: PronunciationFixRule[] = [
   { id: "r1", from: "im lặng", to: "yên lặng" },
   { id: "r2", from: "ml", to: "mililit" },
@@ -136,6 +137,49 @@ export default function VoicePage() {
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
   const [projectTitle, setProjectTitle] = useState<string>("");
 
+  const migrateToProvider = useCallback((target: "ai84" | "ai33") => {
+    const hasWork = conversationLines.some((l) => l.status !== "idle" || Boolean(l.audioUrl));
+    if (!hasWork) {
+      setError("Chua co tien trinh de chuyen.");
+      return;
+    }
+
+    const migratedLines: ConversationLine[] = conversationLines.map((line) => {
+      if (line.status === "done" && line.audioUrl) return line;
+      return {
+        ...line,
+        status: "failed",
+        jobId: undefined,
+        error: "Da chuyen he thong. Bam 'Thu lai cac cau loi' de chay tiep.",
+      };
+    });
+
+    const unfinishedSpeakers = new Set(
+      migratedLines.filter((l) => !(l.status === "done" && l.audioUrl)).map((l) => l.speaker)
+    );
+    const safeVoiceMap = Object.fromEntries(
+      Object.entries(speakerVoiceMap).filter(([speaker]) => !unfinishedSpeakers.has(speaker))
+    );
+
+    const payload = {
+      source: "ai33",
+      target,
+      text,
+      isConversationMode,
+      conversationLines: migratedLines,
+      projectTitle,
+      pauseDuration,
+      requestDelay,
+      concurrencyLimit,
+      speakerVoiceMap: safeVoiceMap,
+      migratedAt: Date.now(),
+    };
+    localStorage.setItem(VOICE_MIGRATION_STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem("portal_speaker_voice_map", JSON.stringify(safeVoiceMap));
+    setSpeakerVoiceMap(safeVoiceMap);
+    router.push(target === "ai84" ? "/dashboard/voice" : "/dashboard/voice-ai33");
+  }, [conversationLines, speakerVoiceMap, text, isConversationMode, projectTitle, pauseDuration, requestDelay, concurrencyLimit, router]);
+
   const getDeviceCode = useCallback(() => {
     if (typeof window === 'undefined') return 'unknown';
     const existing = localStorage.getItem('storycraft_device_code');
@@ -185,6 +229,30 @@ export default function VoicePage() {
       setProjectTitle(prefillTitle);
       localStorage.removeItem("voice_prefill_title");
     }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(VOICE_MIGRATION_STORAGE_KEY);
+      if (!raw) return;
+      const payload = JSON.parse(raw);
+      if (payload?.target !== "ai33") return;
+      localStorage.removeItem(VOICE_MIGRATION_STORAGE_KEY);
+
+      if (typeof payload.text === "string") setText(payload.text);
+      if (typeof payload.projectTitle === "string") setProjectTitle(payload.projectTitle);
+      if (typeof payload.isConversationMode === "boolean") setIsConversationMode(payload.isConversationMode);
+      if (typeof payload.pauseDuration === "number") setPauseDuration(payload.pauseDuration);
+      if (typeof payload.requestDelay === "number") setRequestDelay(payload.requestDelay);
+      if (typeof payload.concurrencyLimit === "number") setConcurrencyLimit(payload.concurrencyLimit);
+
+      if (Array.isArray(payload.conversationLines)) {
+        setConversationLines(payload.conversationLines as ConversationLine[]);
+      }
+      if (payload.speakerVoiceMap && typeof payload.speakerVoiceMap === "object") {
+        setSpeakerVoiceMap(payload.speakerVoiceMap as Record<string, string>);
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -519,6 +587,8 @@ export default function VoicePage() {
   };
 
   const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<void> => {
+    const MAX_LINE_RETRY = 1;
+    const RETRY_DELAY_MS = 2000;
     const voiceId = speakerVoiceMap[line.speaker];
     if (!voiceId) { setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Chưa chọn giọng" } : l)); return; }
 
@@ -533,13 +603,12 @@ export default function VoicePage() {
         }),
       });
       if (res.status === 429) {
-        if (retryCount < 8) {
-          const waitTime = 8000 * (retryCount + 1);
-          setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, error: `Bị giới hạn, thử lại sau ${waitTime/1000}s...` } : l));
-          await new Promise(r => setTimeout(r, waitTime));
+        if (retryCount < MAX_LINE_RETRY) {
+          setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, error: `Bị giới hạn, đổi key và thử nhanh lại sau ${RETRY_DELAY_MS / 1000}s...` } : l));
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
           return processLine(line, keyIdx, retryCount + 1);
         }
-        setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Vượt quá giới hạn API" } : l));
+        setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Bị giới hạn tạm thời, bấm 'Thử lại các câu lỗi' để chạy tiếp ngay." } : l));
         return;
       }
       const result = await res.json();
@@ -1192,7 +1261,7 @@ export default function VoicePage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[9px] text-rose-400/50 mt-2 italic">Hệ thống đã tự động bỏ qua các key này. Sẽ thử lại sau 5 phút.</p>
+                  <p className="text-[9px] text-rose-400/50 mt-2 italic">He thong bo qua key loi va thu key khac. Neu van loi, bam chuyen nha cung cap hoac bam thu lai.</p>
                 </motion.div>
               )}
 
@@ -1278,6 +1347,15 @@ export default function VoicePage() {
                   <button onClick={retryFailedLines} disabled={isGenerating}
                     className="w-full py-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 hover:bg-rose-500/20 transition-all">
                     <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""}/> Thử lại các câu lỗi
+                  </button>
+                )}
+
+                {isConversationMode && conversationLines.some(l => l.status !== "idle" || l.audioUrl) && !isGenerating && (
+                  <button
+                    onClick={() => migrateToProvider("ai84")}
+                    className="w-full py-3 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 rounded-2xl font-bold text-sm flex items-center justify-center gap-3 hover:bg-cyan-500/20 transition-all"
+                  >
+                    <Zap size={18}/> Chuyen tien trinh sang Giọng Nói AI (ai84)
                   </button>
                 )}
 

@@ -7,7 +7,7 @@ const API_BASE_URL = "https://api.ai84.pro";
 const DEFAULT_TIMEOUT = 30000;
 const MAX_RETRIES = 3;
 const DEAD_KEY_THRESHOLD = 3;     // 3 lỗi liên tiếp → đánh dấu chết
-const DEAD_KEY_COOLDOWN = 300000; // 5 phút sau thử lại key chết
+const DEAD_KEY_COOLDOWN = 45000;  // 45 giây sau thử lại key chết
 const VOICE_PRESENCE_PREFIX = 'VOICE_PRESENCE|';
 const VOICE_FIX_RULES_PROVIDER = 'voice_fix_rules:global';
 
