@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { 
@@ -14,6 +14,7 @@ import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
 export default function CleanerPage() {
   const [inputText, setInputText] = useState('');
   const [resultText, setResultText] = useState('');
+  const [detectedTitle, setDetectedTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [copied, setCopied] = useState(false);
@@ -25,8 +26,35 @@ export default function CleanerPage() {
 
   const [progressStep, setProgressStep] = useState(0); 
   const [errorStatus, setErrorStatus] = useState<{message: string, details: string} | null>(null);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{ title: string; who: string; when: string } | null>(null);
+  const duplicatePromptResolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const router = useRouter();
+
+  const askDuplicateConfirm = (payload: { title: string; who: string; when: string }) => {
+    return new Promise<boolean>((resolve) => {
+      duplicatePromptResolverRef.current = resolve;
+      setDuplicatePrompt(payload);
+    });
+  };
+
+  const closeDuplicatePrompt = (value: boolean) => {
+    if (duplicatePromptResolverRef.current) {
+      duplicatePromptResolverRef.current(value);
+      duplicatePromptResolverRef.current = null;
+    }
+    setDuplicatePrompt(null);
+  };
+
+  const ensureSessionId = async (userId: string) => {
+    let sessionId = localStorage.getItem('storycraft_session_id');
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      localStorage.setItem('storycraft_session_id', sessionId);
+    }
+    await supabase.from('profiles').update({ current_session_id: sessionId }).eq('id', userId);
+    return sessionId;
+  };
 
   const fetchHistory = async (userId: string) => {
     const { data } = await supabase
@@ -36,6 +64,16 @@ export default function CleanerPage() {
       .order('created_at', { ascending: false })
       .limit(10);
     setHistory(data || []);
+  };
+
+  const extractTranscriptTitle = (rawText: string) => {
+    const lines = String(rawText || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return '';
+    const title = lines[0].replace(/\s*-\s*YouTube\s*$/i, '').trim();
+    return title.slice(0, 180);
   };
 
   useEffect(() => {
@@ -58,6 +96,7 @@ export default function CleanerPage() {
         return;
       }
 
+      await ensureSessionId(session.user.id);
       setUser({ ...session.user, role: profile?.role });
       fetchHistory(session.user.id);
     };
@@ -71,30 +110,49 @@ export default function CleanerPage() {
     setErrorStatus(null);
     setProgressStep(1); 
 
-    const sessionId = localStorage.getItem('storycraft_session_id');
+    const sessionId = await ensureSessionId(user.id);
 
-    try {
-      const responsePromise = fetch('/api/clean', {
+    const runClean = async (confirmDuplicate = false) => {
+      return fetch('/api/clean', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           text: inputText, 
           userId: user.id,
           sessionId: sessionId,
-          provider: provider
+          provider: provider,
+          confirmDuplicate,
         }),
       });
+    };
 
+    try {
+      const responsePromise = runClean(false);
       setTimeout(() => setProgressStep(2), 800);
       setTimeout(() => setProgressStep(3), 2000);
 
-      const response = await responsePromise;
-      const data = await response.json();
+      let response = await responsePromise;
+      let data = await response.json();
+
+      if (response.status === 409 && data?.duplicate) {
+        const who = data.duplicate.userEmail ? String(data.duplicate.userEmail).split('@')[0] : 'một người dùng khác';
+        const when = data.duplicate.createdAt ? new Date(data.duplicate.createdAt).toLocaleString() : 'trước đó';
+        const title = data.duplicate.title || extractTranscriptTitle(inputText);
+        const shouldContinue = await askDuplicateConfirm({ title, who, when });
+        if (!shouldContinue) {
+          setLoading(false);
+          setProgressStep(0);
+          return;
+        }
+        response = await runClean(true);
+        data = await response.json();
+      }
 
       if (!response.ok) {
         throw { message: data.error, details: data.details };
       }
       setResultText(data.result);
+      setDetectedTitle(data.title || extractTranscriptTitle(inputText));
       // Tải lại lịch sử ngay lập tức
       fetchHistory(user.id);
     } catch (err: any) {
@@ -117,7 +175,9 @@ export default function CleanerPage() {
 
   const sendToPodcast = () => {
     if (!resultText.trim()) return;
+    const title = detectedTitle || extractTranscriptTitle(inputText);
     localStorage.setItem('podcast_prefill_text', resultText);
+    if (title) localStorage.setItem('podcast_prefill_title', title);
     router.push('/dashboard/podcast');
   };
 
@@ -153,7 +213,12 @@ export default function CleanerPage() {
           {/* Module Giọng Nói AI */}
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
-            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI</span>
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-cyan-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span>
           </button>
 
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
@@ -192,6 +257,11 @@ export default function CleanerPage() {
              <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black tracking-widest uppercase italic">
                <span>Làm sạch văn bản chuyên nghiệp</span>
              </div>
+             {detectedTitle && (
+               <p className="text-xs text-amber-300 mt-2">
+                 Tiêu đề nhận diện: <span className="font-bold">{detectedTitle}</span>
+               </p>
+             )}
           </div>
 
           {/* KHU VỰC ĐIỀU KHIỂN BÊN PHẢI: CHUYỂN NÚT LỊCH SỬ QUA ĐÂY */}
@@ -317,8 +387,14 @@ export default function CleanerPage() {
                   <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide">
                      {history.length > 0 ? history.map((h) => (
                        <button 
-                         key={h.id} 
-                         onClick={() => { setSelectedHistory(h); setShowHistory(false); setInputText(h.input_content); setResultText(h.output_content); }}
+                         key={h.id}
+                         onClick={() => {
+                           setSelectedHistory(h);
+                           setShowHistory(false);
+                           setInputText(h.input_content);
+                           setResultText(h.output_content);
+                           setDetectedTitle(extractTranscriptTitle(h.input_content || ''));
+                         }}
                          className="w-full p-6 bg-white/[0.02] border border-white/5 rounded-2xl hover:bg-white/5 transition-all text-left group"
                        >
                           <div className="flex justify-between items-start mb-4">
@@ -339,6 +415,47 @@ export default function CleanerPage() {
         </AnimatePresence>
 
         {/* Error Modal */}
+        <AnimatePresence>
+          {duplicatePrompt && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[95] flex items-center justify-center p-6 bg-[#020617]/90 backdrop-blur-xl">
+              <motion.div initial={{ y: 20, scale: 0.98 }} animate={{ y: 0, scale: 1 }} className="max-w-2xl w-full bg-slate-900 border border-amber-500/20 rounded-[2rem] p-8 shadow-2xl">
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center flex-shrink-0">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Phát hiện nội dung trùng</h3>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Tiêu đề này đã được xử lý trước đó. Bạn có muốn tiếp tục làm sạch không?
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-slate-200 space-y-2">
+                  <p><span className="text-slate-500">Tiêu đề:</span> <span className="font-semibold text-amber-300">{duplicatePrompt.title}</span></p>
+                  <p><span className="text-slate-500">Người xử lý trước:</span> {duplicatePrompt.who}</p>
+                  <p><span className="text-slate-500">Thời gian:</span> {duplicatePrompt.when}</p>
+                </div>
+
+                <div className="mt-6 flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => closeDuplicatePrompt(false)}
+                    className="px-5 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-all font-semibold text-sm"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    onClick={() => closeDuplicatePrompt(true)}
+                    className="px-5 py-2.5 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-200 hover:bg-amber-500/30 transition-all font-semibold text-sm"
+                  >
+                    Vẫn tiếp tục
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {errorStatus && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] flex items-center justify-center p-6 bg-[#020617]/95 backdrop-blur-2xl">

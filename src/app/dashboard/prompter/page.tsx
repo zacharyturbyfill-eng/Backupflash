@@ -189,7 +189,12 @@ export default function PrompterPage() {
           {/* Module Giọng Nói AI */}
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
-            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI</span>
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-cyan-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span>
           </button>
 
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">

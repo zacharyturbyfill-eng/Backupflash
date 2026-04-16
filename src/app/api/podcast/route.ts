@@ -163,6 +163,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const inputText = String(body?.text || '').trim();
+    const title = String(body?.title || '').trim().slice(0, 180);
     const userId = String(body?.userId || '');
     const provider: 'gemini' | 'openai' = body?.provider === 'openai' ? 'openai' : 'gemini';
     const roles = Array.isArray(body?.roles) ? (body.roles as PodcastRole[]) : [];
@@ -313,7 +314,7 @@ Hãy viết lại bản hội thoại đầy đủ ý hơn:
         user_email: profile.email,
         input_transcript: inputText,
         results: finalLines,
-        genre: 'Podcast',
+        genre: title ? `Podcast: ${title}` : 'Podcast',
         style: 'podcast',
         nationality: 'auto',
         provider,
@@ -328,7 +329,7 @@ Hãy viết lại bản hội thoại đầy đủ ý hơn:
     await supabaseAdmin.from('usage_logs').insert({
       user_id: userId,
       user_email: profile.email,
-      tool_name: `Tạo kịch bản Podcast (${provider})`,
+      tool_name: title ? `Tạo kịch bản Podcast (${provider}) | ${title}` : `Tạo kịch bản Podcast (${provider})`,
       char_count: inputText.length,
     });
 
@@ -346,6 +347,7 @@ Hãy viết lại bản hội thoại đầy đủ ý hơn:
       results: finalLines,
       provider,
       model: provider === 'openai' ? 'gpt-4.1-mini' : 'gemini-2.5-flash',
+      title,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Podcast API error' }, { status: 500 });

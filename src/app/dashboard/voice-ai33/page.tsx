@@ -144,7 +144,7 @@ export default function VoicePage() {
     return code;
   }, []);
 
-  // All ai84 TTS Models (Minimax engine)
+  // All ai33 TTS Models (Minimax via ai33 gateway)
   const TTS_MODELS = [
     { id: 'speech-2.6-turbo', name: 'v2.6 Turbo', desc: 'Nhanh nhất, chất lượng tốt' },
     { id: 'speech-2.6-hd', name: 'v2.6 HD', desc: 'Chất lượng cao, chậm hơn' },
@@ -213,7 +213,7 @@ export default function VoicePage() {
   const refreshKeyHealth = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "get_key_count", userId: user.id }),
@@ -231,7 +231,7 @@ export default function VoicePage() {
   const refreshVoicePresence = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "presence_list", userId: user.id }),
@@ -245,7 +245,7 @@ export default function VoicePage() {
     if (!user) return;
     const action = state === "end" ? "presence_end" : "presence_ping";
     try {
-      await fetch("/api/voice", {
+      await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -277,7 +277,7 @@ export default function VoicePage() {
     setError(null);
     try {
       const endpoint = activeTab === "cloned" ? "get_cloned_voices" : "get_system_voices";
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: endpoint, userId: user.id }),
@@ -398,7 +398,7 @@ export default function VoicePage() {
 
       const poll = async () => {
         try {
-          const res = await fetch("/api/voice", {
+          const res = await fetch("/api/voice-ai33", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "tts_status", userId: user.id, jobId, keyIndex: keyIdx }),
@@ -442,7 +442,7 @@ export default function VoicePage() {
 
     setIsGenerating(true); setError(null); setCurrentJob(null);
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -471,7 +471,7 @@ export default function VoicePage() {
 
     setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "pending", error: "Đang gửi yêu cầu..." } : l));
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -574,7 +574,7 @@ export default function VoicePage() {
       for (let i = 0; i < items.length; i += 5) {
         const chunk = items.slice(i, i + 5);
         const chunkResults = await Promise.all(chunk.map(async (item) => {
-          const res = await fetch("/api/voice", {
+          const res = await fetch("/api/voice-ai33", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "proxy_audio", userId: user.id, url: item.url }),
@@ -676,7 +676,7 @@ export default function VoicePage() {
     try {
       const zip = new JSZip();
       await Promise.all(linesWithAudio.map(async (line, index) => {
-        const res = await fetch("/api/voice", {
+        const res = await fetch("/api/voice-ai33", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "proxy_audio", userId: user.id, url: line.audioUrl }),
@@ -699,7 +699,7 @@ export default function VoicePage() {
     if (!user) return;
     setLoadingCredits(true);
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "get_credits", userId: user.id }),
@@ -716,12 +716,12 @@ export default function VoicePage() {
   const estimateCost = async (textLength: number) => {
     if (!user || textLength === 0) { setEstimatedCost(null); return; }
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "estimate_cost", userId: user.id,
-          serviceType: "tts", provider: "minimax",
+          serviceType: "tts", provider: "ai33",
           baseAmount: textLength,
           options: { model_id: model, use_cloned_voice: activeTab === "cloned" },
         }),
@@ -751,7 +751,7 @@ export default function VoicePage() {
         reader.readAsDataURL(cloneFile);
       });
 
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -780,7 +780,7 @@ export default function VoicePage() {
     setPreviewingVoice(voiceId);
     setPreviewAudioUrl(null);
     try {
-      const res = await fetch("/api/voice", {
+      const res = await fetch("/api/voice-ai33", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "preview_voice", userId: user.id, voiceId }),
@@ -817,13 +817,13 @@ export default function VoicePage() {
             <Video className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span>
           </button>
-          <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
+          <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Volume2 className="w-5 h-5 flex-shrink-0 text-indigo-400" />
-            <span className="ml-3 font-semibold hidden md:block">Giọng Nói AI (ai84)</span>
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span>
           </button>
-          <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+          <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
             <Volume2 className="w-5 h-5 flex-shrink-0 text-cyan-400" />
-            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span>
+            <span className="ml-3 font-semibold hidden md:block">Giọng Nói AI (ai33)</span>
           </button>
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Mic className="w-5 h-5 flex-shrink-0" />
@@ -854,9 +854,9 @@ export default function VoicePage() {
 
         <header className="mb-8 flex items-start justify-between">
           <div>
-            <h2 className="text-4xl font-bold text-white font-serif tracking-tight mb-2">Giọng Nói <span className="text-gradient">AI Studio</span></h2>
+            <h2 className="text-4xl font-bold text-white font-serif tracking-tight mb-2">Giọng Nói <span className="text-gradient">AI33 Studio</span></h2>
             <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black tracking-widest uppercase italic">
-              <span>ai84 TTS Integration</span>
+              <span>ai33 TTS Integration</span>
               {otherActiveUsers.length > 0 && (
                 <span className="px-2 py-0.5 bg-amber-500/10 text-amber-300 rounded border border-amber-500/30">
                   {otherActiveUsers.length} người đang dùng
@@ -896,7 +896,7 @@ export default function VoicePage() {
               Cảnh báo tải hệ thống giọng nói
             </p>
             <p className="text-xs text-amber-100">
-              Hiện có {otherActiveUsers.length} nhân viên đang dùng Giọng Nói AI:{" "}
+              Hiện có {otherActiveUsers.length} nhân viên đang dùng Giọng Nói AI (ai33):{" "}
               {otherActiveUsers.map((u) => `${u.userName} (${u.deviceCode})`).join(", ")}.
             </p>
           </div>
@@ -983,7 +983,7 @@ export default function VoicePage() {
               <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4"><Settings size={16} className="text-indigo-400"/>Cấu Hình TTS</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Model TTS (ai84)</label>
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Model TTS (ai33)</label>
                   <div className="space-y-1.5">
                     {TTS_MODELS.map(m => (
                       <button key={m.id} onClick={() => setModel(m.id)}

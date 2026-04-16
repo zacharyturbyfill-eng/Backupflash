@@ -42,6 +42,7 @@ export default function PodcastPage() {
   const [user, setUser] = useState<any>(null);
   const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
   const [inputText, setInputText] = useState("");
+  const [projectTitle, setProjectTitle] = useState("");
   const [lines, setLines] = useState<DialogueLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -97,9 +98,14 @@ export default function PodcastPage() {
 
   useEffect(() => {
     const seededText = localStorage.getItem("podcast_prefill_text");
+    const seededTitle = localStorage.getItem("podcast_prefill_title");
     if (seededText) {
       setInputText(seededText);
       localStorage.removeItem("podcast_prefill_text");
+    }
+    if (seededTitle) {
+      setProjectTitle(seededTitle);
+      localStorage.removeItem("podcast_prefill_title");
     }
     try {
       const rawDoctors = localStorage.getItem(DOCTOR_MEMORY_KEY);
@@ -156,6 +162,7 @@ export default function PodcastPage() {
         body: JSON.stringify({
           userId: user.id,
           text: inputText,
+          title: projectTitle,
           provider,
           roles,
         }),
@@ -184,6 +191,9 @@ export default function PodcastPage() {
     const conversationText = lines.map((line) => `${line.speaker}: ${line.text}`).join("\n");
     localStorage.setItem("voice_prefill_mode", "conversation");
     localStorage.setItem("voice_prefill_text", conversationText);
+    if (projectTitle.trim()) {
+      localStorage.setItem("voice_prefill_title", projectTitle.trim());
+    }
     router.push("/dashboard/voice");
   };
 
@@ -214,7 +224,12 @@ export default function PodcastPage() {
           </button>
           <button onClick={() => router.push("/dashboard/voice")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Volume2 className="w-5 h-5 flex-shrink-0" />
-            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI</span>
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span>
+          </button>
+
+          <button onClick={() => router.push("/dashboard/voice-ai33")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <Volume2 className="w-5 h-5 flex-shrink-0 text-cyan-400" />
+            <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span>
           </button>
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
             <Mic className="w-5 h-5 flex-shrink-0 text-indigo-400" />
@@ -255,6 +270,14 @@ export default function PodcastPage() {
             <p className="text-slate-500 text-[11px] uppercase tracking-widest font-black">
               Model cố định: Gemini Flash / GPT-4.1 mini
             </p>
+            <div className="mt-3">
+              <input
+                value={projectTitle}
+                onChange={(e) => setProjectTitle(e.target.value)}
+                placeholder="Tiêu đề tập podcast..."
+                className="w-[340px] max-w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white outline-none"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <button
@@ -428,6 +451,7 @@ export default function PodcastPage() {
                       setInputText(h.input_transcript || "");
                       setLines(Array.isArray(h.results) ? h.results : []);
                       setProvider(h.provider === "openai" ? "openai" : "gemini");
+                      setProjectTitle(String(h.genre || "").startsWith("Podcast:") ? String(h.genre).replace(/^Podcast:\s*/i, '') : "");
                       setShowHistory(false);
                     }}
                     className="w-full p-5 bg-white/[0.02] border border-white/5 rounded-2xl hover:bg-white/5 transition-all text-left"

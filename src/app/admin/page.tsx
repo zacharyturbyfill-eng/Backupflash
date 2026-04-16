@@ -23,6 +23,8 @@ export default function AdminPage() {
 
   const isMinimaxProvider = (provider?: string | null) =>
     typeof provider === 'string' && provider.startsWith('minimax');
+  const isAi33Provider = (provider?: string | null) =>
+    typeof provider === 'string' && provider.startsWith('ai33');
   const encodeMinimaxLabel = (label: string) => {
     const utf8 = encodeURIComponent(label).replace(/%([0-9A-F]{2})/g, (_, p1) =>
       String.fromCharCode(parseInt(p1, 16))
@@ -64,6 +66,14 @@ export default function AdminPage() {
     } catch {}
     return `${idPrefix}${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
+  const makeAi33ProviderId = () => {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `ai33:${crypto.randomUUID()}`;
+      }
+    } catch {}
+    return `ai33:${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
 
   const [profiles, setProfiles] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -75,6 +85,10 @@ export default function AdminPage() {
   const [editingKeysId, setEditingKeysId] = useState<string | null>(null);
   const [tempKeys, setTempKeys] = useState<any>({});
   const [minimaxSaveState, setMinimaxSaveState] = useState<{ kind: 'idle' | 'loading' | 'success' | 'error'; message: string }>({
+    kind: 'idle',
+    message: '',
+  });
+  const [ai33SaveState, setAi33SaveState] = useState<{ kind: 'idle' | 'loading' | 'success' | 'error'; message: string }>({
     kind: 'idle',
     message: '',
   });
@@ -232,6 +246,44 @@ export default function AdminPage() {
         message,
       });
       alert('Lỗi thêm key ai84: ' + message);
+    }
+  };
+
+  const addAi33Key = async () => {
+    let newKey = tempKeys.ai33New?.trim();
+    if (!newKey) {
+      const fromPrompt = prompt('Dán API key ai33 vào đây:');
+      if (fromPrompt === null) return;
+      newKey = fromPrompt.trim();
+    }
+    if (!newKey) {
+      setAi33SaveState({ kind: 'error', message: 'Vui lòng nhập API Key ai33.' });
+      alert('Vui lòng nhập API Key ai33.');
+      return;
+    }
+
+    try {
+      setAi33SaveState({ kind: 'loading', message: 'Đang lưu key ai33...' });
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'insert_key', provider: makeAi33ProviderId(), api_key: newKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const message = data.error || 'Không thể thêm key ai33.';
+        setAi33SaveState({ kind: 'error', message });
+        alert('Lỗi thêm key ai33: ' + message);
+        return;
+      }
+      setTempKeys((prev: any) => ({ ...prev, ai33New: '' }));
+      await fetchData();
+      setAi33SaveState({ kind: 'success', message: 'Đã thêm key ai33.' });
+      alert('Đã thêm key ai33 thành công.');
+    } catch (err: any) {
+      const message = err?.message || 'Không thể thêm key ai33.';
+      setAi33SaveState({ kind: 'error', message });
+      alert('Lỗi thêm key ai33: ' + message);
     }
   };
 
@@ -580,6 +632,75 @@ export default function AdminPage() {
                        )}
                      </div>
                      <p className="text-[9px] text-slate-600 mt-3 italic">* Key ai84 (api.ai84.pro) dùng để truy cập dịch vụ TTS. Ghi chú sẽ hiển thị khi key lỗi để bạn biết cần thay.</p>
+                   </div>
+
+                   <div className="glass-card rounded-[2.5rem] p-8 border-white/5 relative overflow-hidden group">
+                     <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none"><Volume2 size={150}/></div>
+                     <div className="flex items-center gap-3 mb-6">
+                       <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400"><Volume2 size={24}/></div>
+                       <div>
+                         <h4 className="text-xl font-bold text-white font-serif">ai33 Voice Vault</h4>
+                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                           {vaultKeys.filter(v => isAi33Provider(v.provider)).length} Key ai33 đã lưu — Dùng cho module Giọng Nói AI (ai33)
+                         </p>
+                       </div>
+                     </div>
+
+                     <div className="space-y-2 mb-6 max-h-[220px] overflow-y-auto scrollbar-hide">
+                       {vaultKeys.filter(v => isAi33Provider(v.provider)).map((vk, idx) => (
+                         <div key={`${vk.id}-${vk.provider}`} className="p-4 bg-black/40 rounded-2xl border border-white/5 group/item">
+                           <div className="flex items-center justify-between mb-2">
+                             <div className="flex items-center gap-3 overflow-hidden flex-1">
+                               <div className="w-7 h-7 bg-cyan-500/10 rounded-full flex items-center justify-center text-[10px] font-bold text-cyan-400 flex-shrink-0">{idx + 1}</div>
+                               <span className="text-xs font-bold text-white truncate">ai33 Key #{idx + 1}</span>
+                             </div>
+                             <button
+                               onClick={async () => {
+                                 if (confirm("Xóa key ai33 này?")) {
+                                   const res = await fetch('/api/admin/vault', {
+                                     method: 'POST',
+                                     headers: { 'Content-Type': 'application/json' },
+                                     body: JSON.stringify({ action: 'delete_key', id: vk.id }),
+                                   });
+                                   if (res.ok) fetchData();
+                                 }
+                               }}
+                               className="p-2 text-rose-500/30 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl opacity-0 group-hover/item:opacity-100 transition-all flex-shrink-0 ml-2"
+                             ><Trash2 size={14}/></button>
+                           </div>
+                           <span className="text-[9px] font-mono text-slate-600 ml-10">{vk.api_key.substring(0, 12)}...{vk.api_key.substring(vk.api_key.length - 6)}</span>
+                         </div>
+                       ))}
+                       {vaultKeys.filter(v => isAi33Provider(v.provider)).length === 0 && (
+                         <p className="text-center py-6 text-xs text-slate-600 italic border-2 border-dashed border-white/5 rounded-2xl">Chưa có Key ai33 nào.</p>
+                       )}
+                     </div>
+
+                     <div className="space-y-3">
+                       <div className="flex gap-3">
+                         <input
+                           type="password"
+                           placeholder="Dán API Key ai33 vào đây..."
+                           value={tempKeys.ai33New || ''}
+                           onChange={(e) => setTempKeys((prev: any) => ({ ...prev, ai33New: e.target.value }))}
+                           className="flex-1 bg-black/40 border border-white/10 rounded-xl px-5 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-all font-mono"
+                         />
+                         <button
+                           type="button"
+                           onClick={addAi33Key}
+                           disabled={ai33SaveState.kind === 'loading'}
+                           className="px-6 py-3 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/30 rounded-xl font-bold text-xs flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                         >
+                           <Save size={14}/> {ai33SaveState.kind === 'loading' ? 'Đang lưu...' : 'Thêm Key'}
+                         </button>
+                       </div>
+                       {ai33SaveState.kind !== 'idle' && (
+                         <p className={`text-[10px] font-bold ${ai33SaveState.kind === 'error' ? 'text-rose-400' : ai33SaveState.kind === 'success' ? 'text-emerald-400' : 'text-slate-500'}`}>
+                           {ai33SaveState.message}
+                         </p>
+                       )}
+                     </div>
+                     <p className="text-[9px] text-slate-600 mt-3 italic">* Key ai33 (api.ai33.pro) dùng cho module Giọng Nói AI (ai33).</p>
                    </div>
                 </motion.section>
               )}
