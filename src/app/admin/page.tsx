@@ -23,6 +23,10 @@ export default function AdminPage() {
 
   const isMinimaxProvider = (provider?: string | null) =>
     typeof provider === 'string' && provider.startsWith('minimax');
+  const isProxyProvider = (provider?: string | null) =>
+    typeof provider === 'string' && provider.startsWith('proxy:');
+  const isProxyConfigProvider = (provider?: string | null) =>
+    provider === 'proxy_config:enabled';
   const isAi33Provider = (provider?: string | null) =>
     typeof provider === 'string' && provider.startsWith('ai33');
   const encodeMinimaxLabel = (label: string) => {
@@ -32,6 +36,19 @@ export default function AdminPage() {
     return btoa(utf8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   };
   const decodeMinimaxLabel = (token: string) => {
+    try {
+      const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+      const binary = atob(padded);
+      const encoded = Array.from(binary)
+        .map((ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join('');
+      return decodeURIComponent(encoded);
+    } catch {
+      return '';
+    }
+  };
+  const decodeAi33Label = (token: string) => {
     try {
       const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
       const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
@@ -67,12 +84,26 @@ export default function AdminPage() {
     return `${idPrefix}${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
   const makeAi33ProviderId = () => {
+    const note = String(tempKeys.ai33Label || '').trim();
+    const encodedLabel = note ? encodeMinimaxLabel(note) : '';
+    const idPrefix = encodedLabel ? `ai33:${encodedLabel}:` : 'ai33:';
     try {
       if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return `ai33:${crypto.randomUUID()}`;
+        return `${idPrefix}${crypto.randomUUID()}`;
       }
     } catch {}
-    return `ai33:${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${idPrefix}${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+  const getAi33Label = (provider?: string | null, fallbackIndex?: number) => {
+    if (!provider || !provider.startsWith('ai33:')) {
+      return typeof fallbackIndex === 'number' ? `ai33 Key #${fallbackIndex + 1}` : '';
+    }
+    const parts = provider.split(':');
+    if (parts.length >= 3) {
+      const decoded = decodeAi33Label(parts[1]);
+      if (decoded) return decoded;
+    }
+    return typeof fallbackIndex === 'number' ? `ai33 Key #${fallbackIndex + 1}` : '';
   };
 
   const [profiles, setProfiles] = useState<any[]>([]);
@@ -92,6 +123,12 @@ export default function AdminPage() {
     kind: 'idle',
     message: '',
   });
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxySaveState, setProxySaveState] = useState<{ kind: 'idle' | 'loading' | 'success' | 'error'; message: string }>({
+    kind: 'idle',
+    message: '',
+  });
+  const [proxyLiveById, setProxyLiveById] = useState<Record<string, { live: boolean; egressIp?: string | null; ai84Status?: number; error?: string }>>({});
   
   const [selectedUserHistory, setSelectedUserHistory] = useState<UserTaskHistory[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -142,6 +179,8 @@ export default function AdminPage() {
         });
       } else {
         setVaultKeys(vaultData.items || []);
+        const proxyConfigRow = (vaultData.items || []).find((v: any) => isProxyConfigProvider(v.provider));
+        setProxyEnabled(String(proxyConfigRow?.api_key || 'false').toLowerCase() === 'true');
       }
 
       const { data: usageData } = await supabase.from('usage_logs').select('*').order('created_at', { ascending: false }).limit(20);
@@ -276,7 +315,7 @@ export default function AdminPage() {
         alert('Lỗi thêm key ai33: ' + message);
         return;
       }
-      setTempKeys((prev: any) => ({ ...prev, ai33New: '' }));
+      setTempKeys((prev: any) => ({ ...prev, ai33New: '', ai33Label: '' }));
       await fetchData();
       setAi33SaveState({ kind: 'success', message: 'Đã thêm key ai33.' });
       alert('Đã thêm key ai33 thành công.');
@@ -284,6 +323,79 @@ export default function AdminPage() {
       const message = err?.message || 'Không thể thêm key ai33.';
       setAi33SaveState({ kind: 'error', message });
       alert('Lỗi thêm key ai33: ' + message);
+    }
+  };
+
+  const toggleProxyEnabled = async (enabled: boolean) => {
+    setProxySaveState({ kind: 'loading', message: 'Đang cập nhật trạng thái proxy...' });
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_proxy_enabled', enabled }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setProxySaveState({ kind: 'error', message: json.error || 'Không thể cập nhật trạng thái proxy.' });
+        return;
+      }
+      setProxyEnabled(enabled);
+      setProxySaveState({ kind: 'success', message: enabled ? 'Đã bật proxy cho ai84.' : 'Đã tắt proxy cho ai84.' });
+      fetchData();
+    } catch (error: any) {
+      setProxySaveState({ kind: 'error', message: error?.message || 'Không thể cập nhật proxy.' });
+    }
+  };
+
+  const addProxy = async () => {
+    const proxyUrl = String(tempKeys.proxyNew || '').trim();
+    if (!proxyUrl) {
+      alert('Vui lòng nhập Proxy URL.');
+      return;
+    }
+    setProxySaveState({ kind: 'loading', message: 'Đang thêm proxy...' });
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_proxy', proxy_url: proxyUrl }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setProxySaveState({ kind: 'error', message: json.error || 'Không thể thêm proxy.' });
+        return;
+      }
+      setTempKeys((prev: any) => ({ ...prev, proxyNew: '' }));
+      setProxySaveState({ kind: 'success', message: 'Đã thêm proxy.' });
+      fetchData();
+    } catch (error: any) {
+      setProxySaveState({ kind: 'error', message: error?.message || 'Không thể thêm proxy.' });
+    }
+  };
+
+  const checkProxyLive = async (proxyId: string, proxyUrl: string) => {
+    setProxyLiveById((prev) => ({ ...prev, [proxyId]: { live: false, error: 'Đang kiểm tra...' } }));
+    try {
+      const res = await fetch('/api/admin/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check_proxy_live', proxy_url: proxyUrl }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setProxyLiveById((prev) => ({ ...prev, [proxyId]: { live: false, error: json.error || json.message || 'Proxy offline' } }));
+        return;
+      }
+      setProxyLiveById((prev) => ({
+        ...prev,
+        [proxyId]: {
+          live: true,
+          egressIp: json.egressIp || null,
+          ai84Status: json.ai84Status,
+        },
+      }));
+    } catch (error: any) {
+      setProxyLiveById((prev) => ({ ...prev, [proxyId]: { live: false, error: error?.message || 'Proxy check failed' } }));
     }
   };
 
@@ -652,7 +764,23 @@ export default function AdminPage() {
                            <div className="flex items-center justify-between mb-2">
                              <div className="flex items-center gap-3 overflow-hidden flex-1">
                                <div className="w-7 h-7 bg-cyan-500/10 rounded-full flex items-center justify-center text-[10px] font-bold text-cyan-400 flex-shrink-0">{idx + 1}</div>
-                               <span className="text-xs font-bold text-white truncate">ai33 Key #{idx + 1}</span>
+                               <input
+                                 defaultValue={getAi33Label(vk.provider, idx)}
+                                 placeholder="Nhập ghi chú (VD: Key_NV_Lan)..."
+                                 onBlur={async (e) => {
+                                   const newLabel = e.target.value.trim();
+                                   const currentLabel = getAi33Label(vk.provider, idx);
+                                   if (newLabel !== currentLabel) {
+                                     const res = await fetch('/api/admin/vault', {
+                                       method: 'POST',
+                                       headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify({ action: 'update_label', id: vk.id, label: newLabel }),
+                                     });
+                                     if (res.ok) fetchData();
+                                   }
+                                 }}
+                                 className="flex-1 bg-transparent border-b border-transparent hover:border-white/10 focus:border-cyan-500/50 text-sm font-bold text-white outline-none py-1 transition-all placeholder:text-slate-700 placeholder:text-xs"
+                               />
                              </div>
                              <button
                                onClick={async () => {
@@ -679,6 +807,13 @@ export default function AdminPage() {
                      <div className="space-y-3">
                        <div className="flex gap-3">
                          <input
+                           type="text"
+                           placeholder="Ghi chú (VD: Key_NV_Lan)"
+                           value={tempKeys.ai33Label || ''}
+                           onChange={(e) => setTempKeys((prev: any) => ({ ...prev, ai33Label: e.target.value }))}
+                           className="w-40 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-all"
+                         />
+                         <input
                            type="password"
                            placeholder="Dán API Key ai33 vào đây..."
                            value={tempKeys.ai33New || ''}
@@ -701,6 +836,104 @@ export default function AdminPage() {
                        )}
                      </div>
                      <p className="text-[9px] text-slate-600 mt-3 italic">* Key ai33 (api.ai33.pro) dùng cho module Giọng Nói AI (ai33).</p>
+                   </div>
+
+                   <div className="glass-card rounded-[2.5rem] p-8 border-white/5 relative overflow-hidden group">
+                     <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none"><Globe size={150}/></div>
+                     <div className="flex items-center justify-between gap-3 mb-6">
+                       <div className="flex items-center gap-3">
+                         <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400"><Globe size={24}/></div>
+                         <div>
+                           <h4 className="text-xl font-bold text-white font-serif">Proxy Manager (ai84)</h4>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                             {vaultKeys.filter(v => isProxyProvider(v.provider)).length} proxy | mapping cố định 2 key / 1 proxy
+                           </p>
+                         </div>
+                       </div>
+                       <button
+                         type="button"
+                         onClick={() => toggleProxyEnabled(!proxyEnabled)}
+                         className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${proxyEnabled ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}
+                       >
+                         {proxyEnabled ? 'Proxy ON' : 'Proxy OFF'}
+                       </button>
+                     </div>
+
+                     <div className="space-y-2 mb-6 max-h-[220px] overflow-y-auto scrollbar-hide">
+                       {vaultKeys.filter(v => isProxyProvider(v.provider)).map((proxy, idx) => {
+                         const live = proxyLiveById[proxy.id];
+                         return (
+                           <div key={proxy.id} className="p-4 bg-black/40 rounded-2xl border border-white/5">
+                             <div className="flex items-center justify-between gap-3 mb-2">
+                               <div className="flex items-center gap-3 min-w-0">
+                                 <div className="w-7 h-7 bg-blue-500/10 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-400 flex-shrink-0">{idx + 1}</div>
+                                 <div className="min-w-0">
+                                   <p className="text-xs font-bold text-white truncate">{proxy.api_key}</p>
+                                   <p className="text-[9px] text-slate-600">Phục vụ key #{idx * 2 + 1} và #{idx * 2 + 2}</p>
+                                 </div>
+                               </div>
+                               <div className="flex items-center gap-2 flex-shrink-0">
+                                 <button
+                                   type="button"
+                                   onClick={() => checkProxyLive(proxy.id, proxy.api_key)}
+                                   className="px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[10px] font-bold uppercase tracking-widest"
+                                 >
+                                   Check Live
+                                 </button>
+                                 <button
+                                   type="button"
+                                   onClick={async () => {
+                                     if (!confirm('Xóa proxy này?')) return;
+                                     await fetch('/api/admin/vault', {
+                                       method: 'POST',
+                                       headers: { 'Content-Type': 'application/json' },
+                                       body: JSON.stringify({ action: 'delete_key', id: proxy.id }),
+                                     });
+                                     fetchData();
+                                   }}
+                                   className="p-2 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl"
+                                 >
+                                   <Trash2 size={14} />
+                                 </button>
+                               </div>
+                             </div>
+                             {live && (
+                               <p className={`text-[10px] font-semibold ${live.live ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                 {live.error
+                                   ? live.error
+                                   : `LIVE | Egress IP: ${live.egressIp || 'N/A'} | ai84 health: ${live.ai84Status ?? 'N/A'}`}
+                               </p>
+                             )}
+                           </div>
+                         );
+                       })}
+                       {vaultKeys.filter(v => isProxyProvider(v.provider)).length === 0 && (
+                         <p className="text-center py-6 text-xs text-slate-600 italic border-2 border-dashed border-white/5 rounded-2xl">Chưa có proxy nào.</p>
+                       )}
+                     </div>
+
+                     <div className="flex gap-3">
+                       <input
+                         type="text"
+                         placeholder="Proxy URL (vd: http://user:pass@host:port)"
+                         value={tempKeys.proxyNew || ''}
+                         onChange={(e) => setTempKeys((prev: any) => ({ ...prev, proxyNew: e.target.value }))}
+                         className="flex-1 bg-black/40 border border-white/10 rounded-xl px-5 py-3 text-sm text-white outline-none focus:border-blue-500/50 transition-all font-mono"
+                       />
+                       <button
+                         type="button"
+                         onClick={addProxy}
+                         className="px-6 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 rounded-xl font-bold text-xs flex items-center gap-2"
+                       >
+                         <Save size={14}/> Thêm Proxy
+                       </button>
+                     </div>
+                     {proxySaveState.kind !== 'idle' && (
+                       <p className={`text-[10px] mt-3 font-bold ${proxySaveState.kind === 'error' ? 'text-rose-400' : proxySaveState.kind === 'success' ? 'text-emerald-400' : 'text-slate-500'}`}>
+                         {proxySaveState.message}
+                       </p>
+                     )}
+                     <p className="text-[9px] text-slate-600 mt-3 italic">* Khi bật Proxy ON, mọi request ai84 sẽ fail-closed qua proxy (không gọi thẳng).</p>
                    </div>
                 </motion.section>
               )}

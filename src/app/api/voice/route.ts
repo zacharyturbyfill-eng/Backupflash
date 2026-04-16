@@ -15,6 +15,21 @@ interface KeyEntry {
   api_key: string;
   label: string; // Ghi chú do admin đặt
 }
+interface ProxySettings {
+  enabled: boolean;
+  proxies: string[];
+}
+
+const proxyAgentCache = new Map<string, any>();
+
+function getProxyAgent(proxyUrl: string) {
+  if (proxyAgentCache.has(proxyUrl)) return proxyAgentCache.get(proxyUrl);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ProxyAgent } = require('undici');
+  const agent = new ProxyAgent(proxyUrl);
+  proxyAgentCache.set(proxyUrl, agent);
+  return agent;
+}
 
 function decodeMinimaxLabelFromProvider(provider?: string | null): string {
   if (!provider || !provider.startsWith('minimax:')) return '';
@@ -156,6 +171,64 @@ async function getMinimaxEntries(): Promise<KeyEntry[]> {
     }));
 }
 
+async function getProxySettings(): Promise<ProxySettings> {
+  const { data: proxiesData } = await supabaseAdmin
+    .from('api_vault')
+    .select('api_key, provider')
+    .like('provider', 'proxy:%')
+    .order('provider', { ascending: true });
+  const { data: configData } = await supabaseAdmin
+    .from('api_vault')
+    .select('api_key, provider')
+    .eq('provider', 'proxy_config:enabled')
+    .maybeSingle();
+
+  const proxies = (proxiesData || [])
+    .map((r) => String(r.api_key || '').trim())
+    .filter(Boolean);
+  const enabled = String(configData?.api_key || 'false').toLowerCase() === 'true';
+  return { enabled, proxies };
+}
+
+function getProxyUrlForKeyIndex(keyIndexForMap: number, proxies: string[]): string | null {
+  if (proxies.length === 0) return null;
+  const proxyIdx = Math.floor(Math.max(0, keyIndexForMap) / 2) % proxies.length;
+  return proxies[proxyIdx] || null;
+}
+
+function resolveOriginalKeyIndex(allEntries: KeyEntry[], entry: KeyEntry, providedIndex?: number): number {
+  if (typeof providedIndex === 'number' && Number.isFinite(providedIndex)) {
+    return Math.max(0, providedIndex);
+  }
+  const found = allEntries.findIndex((e) => e.api_key === entry.api_key);
+  return found >= 0 ? found : 0;
+}
+
+async function fetchAi84(
+  allEntries: KeyEntry[],
+  entry: KeyEntry,
+  proxySettings: ProxySettings,
+  url: string,
+  init: RequestInit = {},
+  keyIndexOverride?: number
+) {
+  const keyIdx = resolveOriginalKeyIndex(allEntries, entry, keyIndexOverride);
+  const finalInit: any = { ...init };
+  if (!finalInit.signal) {
+    finalInit.signal = AbortSignal.timeout(DEFAULT_TIMEOUT);
+  }
+
+  if (proxySettings.enabled) {
+    const proxyUrl = getProxyUrlForKeyIndex(keyIdx, proxySettings.proxies);
+    if (!proxyUrl) {
+      throw new Error('Proxy đang bật nhưng chưa có proxy khả dụng.');
+    }
+    finalInit.dispatcher = getProxyAgent(proxyUrl);
+  }
+
+  return fetch(url, finalInit);
+}
+
 // Round-robin CHỈ trên keys sống
 let keyIndex = 0;
 function getNextAliveEntry(allEntries: KeyEntry[]): { entry: KeyEntry; index: number } {
@@ -218,9 +291,18 @@ export async function POST(req: NextRequest) {
 
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1';
     const allEntries = await getMinimaxEntries();
+    const proxySettings = await getProxySettings();
 
     // Đăng ký label cho tất cả keys
     allEntries.forEach(e => getKeyHealth(e.api_key, e.label));
+
+    if (action === 'get_proxy_status') {
+      return NextResponse.json({
+        success: true,
+        enabled: proxySettings.enabled,
+        proxyCount: proxySettings.proxies.length,
+      });
+    }
 
     // --- ACTION: Presence ping cho giọng nói ---
     if (action === 'presence_ping') {
@@ -298,10 +380,13 @@ export async function POST(req: NextRequest) {
 
       const promises = entriesToUse.map(entry =>
         withRetry(async () => {
-          const res = await fetch(`${API_BASE_URL}/v1/minimax/voices/cloned`, {
-            headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
-          });
+          const res = await fetchAi84(
+            allEntries,
+            entry,
+            proxySettings,
+            `${API_BASE_URL}/v1/minimax/voices/cloned`,
+            { headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' } }
+          );
           if (!res.ok) {
             markKeyFailure(entry.api_key, `HTTP ${res.status}`, entry.label);
             return [];
@@ -332,10 +417,13 @@ export async function POST(req: NextRequest) {
     if (action === 'get_system_voices') {
       const { entry } = getNextAliveEntry(allEntries);
       const res = await withRetry(async () => {
-        const r = await fetch(`${API_BASE_URL}/v1/minimax/voices?${new URLSearchParams(body.params || {})}`, {
-          headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
-        });
+        const r = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/voices?${new URLSearchParams(body.params || {})}`,
+          { headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' } }
+        );
         return r;
       }, `System Voices [${entry.label}]`);
 
@@ -373,19 +461,26 @@ export async function POST(req: NextRequest) {
 
       try {
         const res = await withRetry(async () => {
-          const r = await fetch(`${API_BASE_URL}/v1/minimax/text-to-speech/async`, {
-            method: 'POST',
-            headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              canonical_voice_id: body.canonical_voice_id,
-              text: body.text,
-              model: body.model || 'speech-2.6-turbo',
-              speed: body.speed || 1.0,
-              pitch: body.pitch || 0,
-              volume: body.volume || 1.0,
-            }),
-            signal: AbortSignal.timeout(60000),
-          });
+          const r = await fetchAi84(
+            allEntries,
+            entry,
+            proxySettings,
+            `${API_BASE_URL}/v1/minimax/text-to-speech/async`,
+            {
+              method: 'POST',
+              headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                canonical_voice_id: body.canonical_voice_id,
+                text: body.text,
+                model: body.model || 'speech-2.6-turbo',
+                speed: body.speed || 1.0,
+                pitch: body.pitch || 0,
+                volume: body.volume || 1.0,
+              }),
+              signal: AbortSignal.timeout(60000),
+            },
+            usedIndex
+          );
           return r;
         }, `TTS [${entry.label}]`);
 
@@ -454,10 +549,14 @@ export async function POST(req: NextRequest) {
       }
 
       const res = await withRetry(async () => {
-        const r = await fetch(`${API_BASE_URL}/v1/minimax/text-to-speech/async/${body.jobId}`, {
-          headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(DEFAULT_TIMEOUT),
-        });
+        const r = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/text-to-speech/async/${body.jobId}`,
+          { headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' } },
+          body.keyIndex
+        );
         return r;
       }, `TTS Status [${entry.label}]`, 2);
 
@@ -490,6 +589,8 @@ export async function POST(req: NextRequest) {
         alive: aliveCount,
         dead: allEntries.length - aliveCount,
         deadKeys: deadReport,
+        proxyEnabled: proxySettings.enabled,
+        proxyCount: proxySettings.proxies.length,
       });
     }
 
@@ -503,12 +604,19 @@ export async function POST(req: NextRequest) {
     // --- ACTION: Kiểm tra credit tất cả keys ---
     if (action === 'get_credits') {
       const results = await Promise.all(
-        allEntries.map(async (entry) => {
+        allEntries.map(async (entry, entryIdx) => {
           try {
-            const res = await fetch(`${API_BASE_URL}/v1/credits`, {
-              headers: { 'xi-api-key': entry.api_key },
-              signal: AbortSignal.timeout(15000),
-            });
+            const res = await fetchAi84(
+              allEntries,
+              entry,
+              proxySettings,
+              `${API_BASE_URL}/v1/credits`,
+              {
+                headers: { 'xi-api-key': entry.api_key },
+                signal: AbortSignal.timeout(15000),
+              },
+              entryIdx
+            );
             if (!res.ok) return { label: entry.label, credits: -1, error: `HTTP ${res.status}` };
             const data = await res.json();
             return { label: entry.label, credits: data.credits ?? 0, error: null };
@@ -524,16 +632,35 @@ export async function POST(req: NextRequest) {
     // --- ACTION: Ước tính chi phí ---
     if (action === 'estimate_cost') {
       try {
-        const res = await fetch(`${API_BASE_URL}/v1/estimate-credit-cost`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serviceType: body.serviceType || 'tts',
-            provider: body.provider || 'minimax',
-            baseAmount: body.baseAmount || 0,
-            options: body.options || {},
-          }),
-        });
+        const firstEntry = allEntries[0];
+        const res = firstEntry
+          ? await fetchAi84(
+              allEntries,
+              firstEntry,
+              proxySettings,
+              `${API_BASE_URL}/v1/estimate-credit-cost`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  serviceType: body.serviceType || 'tts',
+                  provider: body.provider || 'minimax',
+                  baseAmount: body.baseAmount || 0,
+                  options: body.options || {},
+                }),
+              },
+              0
+            )
+          : await fetch(`${API_BASE_URL}/v1/estimate-credit-cost`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                serviceType: body.serviceType || 'tts',
+                provider: body.provider || 'minimax',
+                baseAmount: body.baseAmount || 0,
+                options: body.options || {},
+              }),
+            });
         const data = await res.json();
         return NextResponse.json(data);
       } catch (err: any) {
@@ -559,12 +686,18 @@ export async function POST(req: NextRequest) {
         formData.append('file', blob, body.fileName);
         if (body.voiceName) formData.append('name', body.voiceName);
 
-        const res = await fetch(`${API_BASE_URL}/v1/minimax/voice-clone`, {
-          method: 'POST',
-          headers: { 'xi-api-key': entry.api_key },
-          body: formData,
-          signal: AbortSignal.timeout(120000), // 2 phút cho upload
-        });
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/voice-clone`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': entry.api_key },
+            body: formData,
+            signal: AbortSignal.timeout(120000), // 2 phút cho upload
+          }
+        );
 
         const data = await res.json();
         if (res.ok) markKeySuccess(entry.api_key, entry.label);
@@ -583,17 +716,23 @@ export async function POST(req: NextRequest) {
 
       try {
         // Tạo TTS ngắn
-        const res = await fetch(`${API_BASE_URL}/v1/minimax/text-to-speech/async`, {
-          method: 'POST',
-          headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            canonical_voice_id: body.voiceId,
-            text: sampleText,
-            model: 'speech-2.6-turbo',
-            speed: 1.0,
-          }),
-          signal: AbortSignal.timeout(30000),
-        });
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/text-to-speech/async`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              canonical_voice_id: body.voiceId,
+              text: sampleText,
+              model: 'speech-2.6-turbo',
+              speed: 1.0,
+            }),
+            signal: AbortSignal.timeout(30000),
+          }
+        );
 
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -605,10 +744,16 @@ export async function POST(req: NextRequest) {
         let audioUrl = '';
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 2000));
-          const pollRes = await fetch(`${API_BASE_URL}/v1/minimax/text-to-speech/async/${jobId}`, {
-            headers: { 'xi-api-key': entry.api_key },
-            signal: AbortSignal.timeout(10000),
-          });
+          const pollRes = await fetchAi84(
+            allEntries,
+            entry,
+            proxySettings,
+            `${API_BASE_URL}/v1/minimax/text-to-speech/async/${jobId}`,
+            {
+              headers: { 'xi-api-key': entry.api_key },
+              signal: AbortSignal.timeout(10000),
+            }
+          );
           const pollData = await pollRes.json();
           if (pollData.success && pollData.job?.status === 'done') {
             audioUrl = pollData.job.audio_url;
@@ -634,11 +779,17 @@ export async function POST(req: NextRequest) {
     if (action === 'delete_voice') {
       const { entry } = getNextAliveEntry(allEntries);
       try {
-        const res = await fetch(`${API_BASE_URL}/v1/minimax/voices/${body.voiceId}`, {
-          method: 'DELETE',
-          headers: { 'xi-api-key': entry.api_key },
-          signal: AbortSignal.timeout(15000),
-        });
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/voices/${body.voiceId}`,
+          {
+            method: 'DELETE',
+            headers: { 'xi-api-key': entry.api_key },
+            signal: AbortSignal.timeout(15000),
+          }
+        );
         const data = await res.json();
         return NextResponse.json(data, { status: res.status });
       } catch (err: any) {
@@ -650,12 +801,18 @@ export async function POST(req: NextRequest) {
     if (action === 'rename_voice') {
       const { entry } = getNextAliveEntry(allEntries);
       try {
-        const res = await fetch(`${API_BASE_URL}/v1/minimax/voices/${body.voiceId}`, {
-          method: 'PUT',
-          headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: body.newName }),
-          signal: AbortSignal.timeout(15000),
-        });
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v1/minimax/voices/${body.voiceId}`,
+          {
+            method: 'PUT',
+            headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: body.newName }),
+            signal: AbortSignal.timeout(15000),
+          }
+        );
         const data = await res.json();
         return NextResponse.json(data, { status: res.status });
       } catch (err: any) {

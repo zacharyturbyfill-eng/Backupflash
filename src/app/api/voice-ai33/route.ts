@@ -152,7 +152,7 @@ async function getAi33Entries(): Promise<KeyEntry[]> {
     .filter(d => d.api_key)
     .map((d, i) => ({
       api_key: d.api_key,
-      label: decodeAi33LabelFromProvider(d.provider) || d.provider || `ai33 Key #${i + 1}`,
+      label: decodeAi33LabelFromProvider(d.provider) || `ai33 Key #${i + 1}`,
     }));
 }
 
