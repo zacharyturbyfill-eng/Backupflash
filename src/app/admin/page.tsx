@@ -846,7 +846,7 @@ export default function AdminPage() {
                          <div>
                            <h4 className="text-xl font-bold text-white font-serif">Proxy Manager (ai84)</h4>
                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                             {vaultKeys.filter(v => isProxyProvider(v.provider)).length} proxy | mapping cố định 2 key / 1 proxy
+                             {vaultKeys.filter(v => isProxyProvider(v.provider)).length} proxy | phân bổ linh động theo số key/proxy
                            </p>
                          </div>
                        </div>
@@ -862,6 +862,13 @@ export default function AdminPage() {
                      <div className="space-y-2 mb-6 max-h-[220px] overflow-y-auto scrollbar-hide">
                        {vaultKeys.filter(v => isProxyProvider(v.provider)).map((proxy, idx) => {
                          const live = proxyLiveById[proxy.id];
+                         const totalAi84Keys = vaultKeys.filter(v => isMinimaxProvider(v.provider)).length;
+                         const assignedKeyNumbers: number[] = [];
+                         for (let keyIdx = 0; keyIdx < totalAi84Keys; keyIdx++) {
+                           if (idx === (keyIdx % Math.max(1, vaultKeys.filter(v => isProxyProvider(v.provider)).length))) {
+                             assignedKeyNumbers.push(keyIdx + 1);
+                           }
+                         }
                          return (
                            <div key={proxy.id} className="p-4 bg-black/40 rounded-2xl border border-white/5">
                              <div className="flex items-center justify-between gap-3 mb-2">
@@ -869,7 +876,11 @@ export default function AdminPage() {
                                  <div className="w-7 h-7 bg-blue-500/10 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-400 flex-shrink-0">{idx + 1}</div>
                                  <div className="min-w-0">
                                    <p className="text-xs font-bold text-white truncate">{proxy.api_key}</p>
-                                   <p className="text-[9px] text-slate-600">Phục vụ key #{idx * 2 + 1} và #{idx * 2 + 2}</p>
+                                   <p className="text-[9px] text-slate-600">
+                                     {assignedKeyNumbers.length > 0
+                                       ? `Phục vụ key #${assignedKeyNumbers.join(', #')}`
+                                       : 'Chưa được gán key'}
+                                   </p>
                                  </div>
                                </div>
                                <div className="flex items-center gap-2 flex-shrink-0">
@@ -933,7 +944,7 @@ export default function AdminPage() {
                          {proxySaveState.message}
                        </p>
                      )}
-                     <p className="text-[9px] text-slate-600 mt-3 italic">* Khi bật Proxy ON, mọi request ai84 sẽ fail-closed qua proxy (không gọi thẳng).</p>
+                     <p className="text-[9px] text-slate-600 mt-3 italic">* Khi bật Proxy ON, mọi request ai84 sẽ fail-closed qua proxy (không gọi thẳng). Mapping theo modulo: proxy nhiều thì gần 1-1, proxy ít thì chia đều.</p>
                    </div>
                 </motion.section>
               )}

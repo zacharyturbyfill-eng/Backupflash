@@ -192,7 +192,10 @@ async function getProxySettings(): Promise<ProxySettings> {
 
 function getProxyUrlForKeyIndex(keyIndexForMap: number, proxies: string[]): string | null {
   if (proxies.length === 0) return null;
-  const proxyIdx = Math.floor(Math.max(0, keyIndexForMap) / 2) % proxies.length;
+  // Linh động:
+  // - Nếu proxy >= key: mỗi key dùng proxy riêng (1-1 theo index)
+  // - Nếu proxy < key: chia đều theo modulo
+  const proxyIdx = Math.max(0, keyIndexForMap) % proxies.length;
   return proxies[proxyIdx] || null;
 }
 
