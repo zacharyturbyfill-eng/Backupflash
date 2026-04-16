@@ -260,7 +260,7 @@ export default function PodcastPage() {
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-10 overflow-hidden">
+      <main className="flex-1 p-4 md:p-10 overflow-y-auto">
         <SystemAnnouncementBanner userId={user?.id} />
         <header className="mb-8 flex items-start justify-between">
           <div>
@@ -300,7 +300,7 @@ export default function PodcastPage() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-190px)]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-auto lg:h-[calc(100vh-190px)] pb-6">
           <section className="lg:col-span-5 glass-card rounded-[2.5rem] border-white/5 overflow-hidden flex flex-col">
             <div className="p-6 border-b border-white/5">
               <div className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-3">Nhân vật</div>
