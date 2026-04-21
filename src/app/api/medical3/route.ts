@@ -13,6 +13,7 @@ type SeoPackage = {
   hashtags: string[];
   keywords: string[];
 };
+type SeoLanguage = 'vi' | 'ja' | 'ko' | 'en';
 
 const STOPWORDS = new Set([
   'va', 'và', 'la', 'là', 'cua', 'của', 'cho', 'trong', 'nhung', 'những', 'mot', 'một', 'cac', 'các',
@@ -76,6 +77,21 @@ function extractTopTokens(transcript: string, max = 30): string[] {
 
 function toHashtag(word: string): string {
   return `#${word.replace(/\s+/g, '')}`;
+}
+
+function detectSeoLanguage(transcript: string): SeoLanguage {
+  const text = String(transcript || '');
+  if (/[ぁ-んァ-ン一-龯々〆〤]/u.test(text)) return 'ja';
+  if (/[가-힣]/u.test(text)) return 'ko';
+  if (/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/u.test(text)) return 'vi';
+  return 'en';
+}
+
+function languageName(lang: SeoLanguage): string {
+  if (lang === 'ja') return 'Japanese';
+  if (lang === 'ko') return 'Korean';
+  if (lang === 'vi') return 'Vietnamese';
+  return 'English';
 }
 
 function buildFallbackTimestamps(transcript: string): string[] {
@@ -188,6 +204,61 @@ ${transcript.slice(0, 120000)}`;
   });
   const raw = response.text || '{}';
   return normalizeSeoPackage(JSON.parse(raw), transcript);
+}
+
+async function translateSeoPackageByProvider(
+  provider: ModelProvider,
+  apiKey: string,
+  source: SeoPackage,
+  targetLang: SeoLanguage
+): Promise<SeoPackage> {
+  const targetLanguage = languageName(targetLang);
+  const prompt = `Translate the following YouTube SEO package into ${targetLanguage}.
+
+Rules:
+1) Keep JSON structure exactly: title, description, timestamps, hashtags, keywords.
+2) Keep item counts exactly:
+   - timestamps: 10
+   - hashtags: 20
+   - keywords: 20
+3) Keep timestamp time values unchanged (e.g. "00:00 - ..."), only translate text descriptions.
+4) Return JSON only.
+
+Input JSON:
+${JSON.stringify(source)}`;
+
+  if (provider === 'openai') {
+    const client = new OpenAI({ apiKey: apiKey.trim() });
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4.1-mini',
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const raw = completion.choices[0]?.message?.content || '{}';
+    return normalizeSeoPackage(JSON.parse(raw), source.description || source.title || '');
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: [{ parts: [{ text: prompt }] }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          timestamps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['title', 'description', 'timestamps', 'hashtags', 'keywords'],
+      },
+    },
+  });
+  const raw = response.text || '{}';
+  return normalizeSeoPackage(JSON.parse(raw), source.description || source.title || '');
 }
 
 const getSystemInstruction = (settings: any) => {
@@ -354,7 +425,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Thiếu transcript để tạo SEO.' }, { status: 400 });
       }
       const seo = await generateSeoByProvider(provider, key, transcript);
-      return NextResponse.json({ success: true, seo });
+      return NextResponse.json({ success: true, seo, lang: detectSeoLanguage(transcript) });
+    }
+
+    if (action === 'translate_seo') {
+      const sourceSeo = body?.seo as SeoPackage;
+      const targetLang = String(body?.targetLang || 'vi') as SeoLanguage;
+      if (!sourceSeo || !sourceSeo.title || !Array.isArray(sourceSeo.timestamps)) {
+        return NextResponse.json({ error: 'Thiếu dữ liệu SEO để dịch.' }, { status: 400 });
+      }
+      if (!['vi', 'ja', 'ko', 'en'].includes(targetLang)) {
+        return NextResponse.json({ error: 'Ngôn ngữ dịch không hợp lệ.' }, { status: 400 });
+      }
+      const translated = await translateSeoPackageByProvider(provider, key, sourceSeo, targetLang);
+      return NextResponse.json({ success: true, seo: translated, lang: targetLang });
     }
 
     if (action === 'save_history') {

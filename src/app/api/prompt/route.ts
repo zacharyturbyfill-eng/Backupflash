@@ -12,6 +12,7 @@ type SeoPackage = {
   hashtags: string[];
   keywords: string[];
 };
+type SeoLanguage = 'vi' | 'ja' | 'ko' | 'en';
 
 const STOPWORDS = new Set([
   'va', 'và', 'la', 'là', 'cua', 'của', 'cho', 'trong', 'nhung', 'những', 'mot', 'một', 'cac', 'các',
@@ -62,9 +63,7 @@ function extractTitle(transcript: string): string {
 function extractTopTokens(transcript: string, max = 30): string[] {
   const raw = transcript
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .map((w) => w.trim())
     .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
@@ -77,27 +76,91 @@ function toHashtag(word: string): string {
   return `#${word.replace(/\s+/g, '')}`;
 }
 
-function buildFallbackTimestamps(transcript: string): string[] {
+function detectSeoLanguage(transcript: string): SeoLanguage {
+  const text = String(transcript || '');
+  if (/[ぁ-んァ-ン一-龯々〆〤]/u.test(text)) return 'ja';
+  if (/[가-힣]/u.test(text)) return 'ko';
+  if (/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/u.test(text)) return 'vi';
+  return 'en';
+}
+
+function languageName(lang: SeoLanguage): string {
+  if (lang === 'ja') return 'Japanese';
+  if (lang === 'ko') return 'Korean';
+  if (lang === 'vi') return 'Vietnamese';
+  return 'English';
+}
+
+function detectLanguageFromText(text: string): SeoLanguage {
+  return detectSeoLanguage(text);
+}
+
+function packageLanguageScore(pkg: SeoPackage, target: SeoLanguage): number {
+  const merged = `${pkg.title}\n${pkg.description}\n${pkg.timestamps.join('\n')}`;
+  const detected = detectLanguageFromText(merged);
+  return detected === target ? 1 : 0;
+}
+
+function localizedPhrases(lang: SeoLanguage) {
+  if (lang === 'ja') {
+    return {
+      fallbackTitle: 'YouTube動画のSEO説明',
+      fallbackIntro: 'チャンネルへようこそ。本動画では、重要ポイントを分かりやすく整理してお届けします。',
+      fallbackBodyLead: '元のトランスクリプトに基づく要点:',
+      fallbackOutro: '下のタイムスタンプから、見たいテーマにすぐ移動できます。',
+      tsLabel: '主要トピック',
+    };
+  }
+  if (lang === 'ko') {
+    return {
+      fallbackTitle: '유튜브 SEO 영상 설명',
+      fallbackIntro: '채널에 오신 것을 환영합니다. 이번 영상의 핵심 내용을 이해하기 쉽게 정리했습니다.',
+      fallbackBodyLead: '원문 트랜스크립트 기반 핵심 내용:',
+      fallbackOutro: '아래 타임스탬프에서 원하는 구간을 바로 확인하세요.',
+      tsLabel: '주요 내용',
+    };
+  }
+  if (lang === 'en') {
+    return {
+      fallbackTitle: 'SEO YouTube Video Description',
+      fallbackIntro: 'Welcome back to the channel. In this video, we break down the key points in a clear and practical way.',
+      fallbackBodyLead: 'Key points based on the original transcript:',
+      fallbackOutro: 'Use the timestamps below to jump to each section quickly.',
+      tsLabel: 'Key topic',
+    };
+  }
+  return {
+    fallbackTitle: 'Mô tả video YouTube chuẩn SEO',
+    fallbackIntro: 'Chào mừng quý vị quay trở lại kênh. Video này tổng hợp các điểm quan trọng theo cách dễ theo dõi.',
+    fallbackBodyLead: 'Nội dung chính bám sát transcript gốc:',
+    fallbackOutro: 'Mời quý vị xem các mốc thời gian bên dưới để theo dõi nhanh từng phần.',
+    tsLabel: 'Mốc nội dung chính',
+  };
+}
+
+function buildFallbackTimestamps(transcript: string, lang: SeoLanguage): string[] {
   const duration = extractDurationSeconds(transcript);
+  const i18n = localizedPhrases(lang);
   const out: string[] = [];
   for (let i = 0; i < 10; i++) {
     const sec = Math.floor((duration * i) / 9);
-    out.push(`${formatTimestamp(sec)} - Mốc nội dung chính ${i + 1}`);
+    out.push(`${formatTimestamp(sec)} - ${i18n.tsLabel} ${i + 1}`);
   }
   return out;
 }
 
-function buildFallbackDescription(transcript: string, title: string): string {
+function buildFallbackDescription(transcript: string, title: string, lang: SeoLanguage): string {
+  const i18n = localizedPhrases(lang);
   const plain = transcript.replace(/\r\n/g, '\n').replace(/\n+/g, ' ').trim();
   const excerpt = plain.slice(0, 700);
   return [
-    `Chào mừng quý vị quay trở lại kênh. Trong video "${title}", chúng ta sẽ cùng đi qua các nội dung nổi bật một cách dễ hiểu và thực tế.`,
-    `Nội dung chính bám sát transcript gốc: ${excerpt}${plain.length > 700 ? '...' : ''}`,
-    'Mời quý vị theo dõi phần mốc thời gian chi tiết bên dưới để xem nhanh từng chủ đề quan trọng.',
+    `${i18n.fallbackIntro} "${title}".`,
+    `${i18n.fallbackBodyLead} ${excerpt}${plain.length > 700 ? '...' : ''}`,
+    i18n.fallbackOutro,
   ].join('\n\n');
 }
 
-function normalizeSeoPackage(input: any, transcript: string): SeoPackage {
+function normalizeSeoPackage(input: any, transcript: string, lang: SeoLanguage): SeoPackage {
   const topTokens = extractTopTokens(transcript, 40);
   const timestamps = Array.isArray(input?.timestamps) ? input.timestamps : [];
   const hashtags = Array.isArray(input?.hashtags) ? input.hashtags : [];
@@ -118,38 +181,74 @@ function normalizeSeoPackage(input: any, transcript: string): SeoPackage {
   while (normalizedHashtags.length < 20) normalizedHashtags.push(`#seo${normalizedHashtags.length + 1}`);
   while (normalizedKeywords.length < 20) normalizedKeywords.push(`tu-khoa-${normalizedKeywords.length + 1}`);
 
-  const title = String(input?.title || extractTitle(transcript)).trim().slice(0, 200);
-  const description = String(input?.description || '').trim() || buildFallbackDescription(transcript, title);
+  const i18n = localizedPhrases(lang);
+  const title = String(input?.title || extractTitle(transcript) || i18n.fallbackTitle).trim().slice(0, 200);
+  const description = String(input?.description || '').trim() || buildFallbackDescription(transcript, title, lang);
 
   return {
     title,
     description,
-    timestamps: (normalizedTimestamps.length > 0 ? normalizedTimestamps : buildFallbackTimestamps(transcript)).slice(0, 10),
+    timestamps: (normalizedTimestamps.length > 0 ? normalizedTimestamps : buildFallbackTimestamps(transcript, lang)).slice(0, 10),
     hashtags: normalizedHashtags.slice(0, 20),
     keywords: normalizedKeywords.slice(0, 20),
   };
 }
 
-async function generateSeoByProvider(provider: 'gemini' | 'openai', apiKey: string, transcript: string): Promise<SeoPackage> {
-  const prompt = `Bạn là chuyên gia SEO YouTube tiếng Việt.
-Nhiệm vụ: từ transcript sau, tạo mô tả video YouTube chuẩn SEO và trả về JSON đúng schema:
+async function generateSeoByProvider(provider: 'gemini' | 'openai', apiKey: string, transcript: string, lang: SeoLanguage): Promise<SeoPackage> {
+  const targetLanguage = languageName(lang);
+  const prompt = `You are a YouTube SEO specialist.
+Task: from the transcript below, generate a production-ready YouTube SEO package and return strict JSON schema:
 {
   "title": "string",
-  "description": "mở đầu hấp dẫn + 2-3 đoạn mô tả rõ nội dung, phong cách tự nhiên, không bịa dữ kiện ngoài transcript",
-  "timestamps": ["... đúng 10 mốc từ đầu đến cuối, định dạng 00:00 - mô tả ngắn ..."],
-  "hashtags": ["... đúng 20 hashtag ..."],
-  "keywords": ["... đúng 20 từ khóa SEO ..."]
+  "description": "engaging opening + 2-3 clear sections strictly based on transcript",
+  "timestamps": ["... exactly 10 items from start to end, format 00:00 - short description ..."],
+  "hashtags": ["... exactly 20 hashtags ..."],
+  "keywords": ["... exactly 20 SEO keywords ..."]
 }
 
-Yêu cầu bắt buộc:
-1) Description phải dùng được ngay cho phần mô tả video YouTube.
-2) timestamps đúng 10 mốc, phân bố từ đầu đến cuối video.
-3) hashtags đúng 20 mục, mỗi hashtag bắt đầu bằng #.
-4) keywords đúng 20 mục, đa dạng, liên quan nội dung.
-5) Không thêm giải thích ngoài JSON.
+Hard requirements:
+1) Write ALL fields in exactly this language: ${targetLanguage}.
+2) Do NOT translate to any other language.
+3) Description must be directly usable in YouTube description.
+4) timestamps must be exactly 10 and distributed from start to end.
+5) hashtags must be exactly 20, each starts with #.
+6) keywords must be exactly 20, diverse and relevant.
+7) Return JSON only. No explanations.
 
 Transcript:
 ${transcript.slice(0, 120000)}`;
+
+  const correctLanguageIfNeeded = async (pkg: SeoPackage): Promise<SeoPackage> => {
+    if (packageLanguageScore(pkg, lang) === 1) return pkg;
+    const correctionPrompt = `Rewrite the following JSON fields into ${targetLanguage} ONLY.
+Keep exact structure and counts:
+- timestamps must stay 10
+- hashtags must stay 20
+- keywords must stay 20
+Return JSON only with keys: title, description, timestamps, hashtags, keywords.
+Input JSON:
+${JSON.stringify(pkg)}`;
+
+    if (provider === 'openai') {
+      const openai = new OpenAI({ apiKey });
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4.1-mini',
+        messages: [{ role: 'user', content: correctionPrompt }],
+        response_format: { type: 'json_object' },
+      });
+      const raw = response.choices[0]?.message?.content || '{}';
+      return normalizeSeoPackage(JSON.parse(raw), transcript, lang);
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{ parts: [{ text: correctionPrompt }] }],
+      config: { responseMimeType: 'application/json' },
+    });
+    const raw = response.text || '{}';
+    return normalizeSeoPackage(JSON.parse(raw), transcript, lang);
+  };
 
   if (provider === 'openai') {
     const openai = new OpenAI({ apiKey });
@@ -159,7 +258,8 @@ ${transcript.slice(0, 120000)}`;
       response_format: { type: 'json_object' },
     });
     const raw = response.choices[0]?.message?.content || '{}';
-    return normalizeSeoPackage(JSON.parse(raw), transcript);
+    const pkg = normalizeSeoPackage(JSON.parse(raw), transcript, lang);
+    return correctLanguageIfNeeded(pkg);
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -182,7 +282,8 @@ ${transcript.slice(0, 120000)}`;
     },
   });
   const raw = response.text || '{}';
-  return normalizeSeoPackage(JSON.parse(raw), transcript);
+  const pkg = normalizeSeoPackage(JSON.parse(raw), transcript, lang);
+  return correctLanguageIfNeeded(pkg);
 }
 
 export async function POST(req: NextRequest) {
@@ -210,7 +311,8 @@ export async function POST(req: NextRequest) {
       if (!sourceTranscript.trim()) {
         return NextResponse.json({ error: 'Thiếu transcript để tạo SEO.' }, { status: 400 });
       }
-      const seo = await generateSeoByProvider(provider === 'openai' ? 'openai' : 'gemini', finalKey, sourceTranscript);
+      const lang = detectSeoLanguage(sourceTranscript);
+      const seo = await generateSeoByProvider(provider === 'openai' ? 'openai' : 'gemini', finalKey, sourceTranscript, lang);
       return NextResponse.json({ success: true, seo });
     }
 

@@ -382,6 +382,11 @@ export default function PrompterPage() {
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
           </button>
 
+          <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Sparkles className="w-5 h-5 flex-shrink-0 group-hover:text-fuchsia-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Tool viết lại truyện</span>
+          </button>
+
           <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Video className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>

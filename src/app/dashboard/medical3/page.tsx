@@ -62,6 +62,7 @@ type SeoPackage = {
   hashtags: string[];
   keywords: string[];
 };
+type SeoLanguage = 'vi' | 'ja' | 'ko' | 'en';
 type UserPromptReminder = {
   enabled: boolean;
   message: string;
@@ -177,6 +178,8 @@ export default function Medical3Page() {
   const [showSeoBox, setShowSeoBox] = useState(false);
   const [copiedSeo, setCopiedSeo] = useState(false);
   const [generatingSeo, setGeneratingSeo] = useState(false);
+  const [translatingSeo, setTranslatingSeo] = useState<SeoLanguage | null>(null);
+  const [seoLang, setSeoLang] = useState<SeoLanguage>('vi');
   const [showKidsWarnStep1, setShowKidsWarnStep1] = useState(false);
   const [reminderStep, setReminderStep] = useState(1);
   const [reminderAgree, setReminderAgree] = useState(false);
@@ -324,17 +327,31 @@ export default function Medical3Page() {
   };
 
   const buildSeoText = (pkg: SeoPackage) => {
+    const heading = seoLang === 'ja'
+      ? '詳細タイムスタンプ'
+      : seoLang === 'ko'
+      ? '상세 타임스탬프'
+      : seoLang === 'en'
+      ? 'DETAILED TIMESTAMPS'
+      : 'NỘI DUNG CHI TIẾT (TIME STAMPS)';
+    const keywordLabel = seoLang === 'ja'
+      ? '追加SEOキーワード'
+      : seoLang === 'ko'
+      ? '추가 SEO 키워드'
+      : seoLang === 'en'
+      ? 'ADDITIONAL SEO KEYWORDS'
+      : 'TỪ KHÓA SEO BỔ SUNG';
     return [
       pkg.title,
       '',
       pkg.description,
       '',
-      'NỘI DUNG CHI TIẾT (TIME STAMPS):',
+      `${heading}:`,
       ...pkg.timestamps,
       '',
       pkg.hashtags.join(' '),
       '',
-      `TỪ KHÓA SEO BỔ SUNG: ${pkg.keywords.join(', ')}`,
+      `${keywordLabel}: ${pkg.keywords.join(', ')}`,
     ].join('\n');
   };
 
@@ -358,11 +375,39 @@ export default function Medical3Page() {
       if (!response.ok) throw new Error(json?.error || 'Lỗi tạo mô tả video YouTube');
       if (!json?.seo) throw new Error('API chưa trả về dữ liệu mô tả.');
       setSeoPackage(json.seo);
+      setSeoLang((json?.lang as SeoLanguage) || 'vi');
       setShowSeoBox(true);
     } catch (err: any) {
       alert(err?.message || 'Lỗi tạo mô tả video YouTube');
     } finally {
       setGeneratingSeo(false);
+    }
+  };
+
+  const handleTranslateSeo = async (targetLang: SeoLanguage) => {
+    if (!seoPackage || !user?.id || translatingSeo) return;
+    setTranslatingSeo(targetLang);
+    try {
+      const response = await fetch('/api/medical3', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'translate_seo',
+          userId: user.id,
+          provider,
+          seo: seoPackage,
+          targetLang,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || 'Lỗi dịch mô tả SEO.');
+      if (!json?.seo) throw new Error('Không có dữ liệu sau khi dịch.');
+      setSeoPackage(json.seo);
+      setSeoLang((json?.lang as SeoLanguage) || targetLang);
+    } catch (err: any) {
+      alert(err?.message || 'Lỗi dịch mô tả SEO.');
+    } finally {
+      setTranslatingSeo(null);
     }
   };
 
@@ -447,6 +492,7 @@ export default function Medical3Page() {
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Volume2 className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span></button>
           <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Volume2 className="w-5 h-5 flex-shrink-0 text-cyan-400" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span></button>
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Mic className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Podcast Studio</span></button>
+          <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Sparkles className="w-5 h-5 flex-shrink-0 text-fuchsia-300" /><span className="ml-3 font-medium hidden md:block">Tool viết lại truyện</span></button>
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg"><Video className="w-5 h-5 flex-shrink-0 text-orange-400" /><span className="ml-3 font-semibold hidden md:block">Prompt Medical 3.0</span></button>
           {user?.role === 'admin' && <button onClick={() => router.push('/admin')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all"><Settings className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Quản Trị Admin</span></button>}
         </nav>
@@ -510,6 +556,39 @@ export default function Medical3Page() {
               ) : (
                 <div className="space-y-3 text-sm text-slate-200">
                   <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">{buildSeoText(seoPackage)}</pre>
+                  <div className="pt-2 border-t border-slate-800">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2">Dịch nhanh mô tả</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleTranslateSeo('vi')}
+                        disabled={!!translatingSeo}
+                        className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase border ${seoLang === 'vi' ? 'bg-blue-600/30 text-blue-100 border-blue-400/40' : 'bg-white/5 text-slate-300 border-slate-700'} disabled:opacity-40`}
+                      >
+                        {translatingSeo === 'vi' ? '...' : 'VI'}
+                      </button>
+                      <button
+                        onClick={() => handleTranslateSeo('ja')}
+                        disabled={!!translatingSeo}
+                        className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase border ${seoLang === 'ja' ? 'bg-blue-600/30 text-blue-100 border-blue-400/40' : 'bg-white/5 text-slate-300 border-slate-700'} disabled:opacity-40`}
+                      >
+                        {translatingSeo === 'ja' ? '...' : 'JA'}
+                      </button>
+                      <button
+                        onClick={() => handleTranslateSeo('ko')}
+                        disabled={!!translatingSeo}
+                        className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase border ${seoLang === 'ko' ? 'bg-blue-600/30 text-blue-100 border-blue-400/40' : 'bg-white/5 text-slate-300 border-slate-700'} disabled:opacity-40`}
+                      >
+                        {translatingSeo === 'ko' ? '...' : 'KO'}
+                      </button>
+                      <button
+                        onClick={() => handleTranslateSeo('en')}
+                        disabled={!!translatingSeo}
+                        className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase border ${seoLang === 'en' ? 'bg-blue-600/30 text-blue-100 border-blue-400/40' : 'bg-white/5 text-slate-300 border-slate-700'} disabled:opacity-40`}
+                      >
+                        {translatingSeo === 'en' ? '...' : 'EN'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

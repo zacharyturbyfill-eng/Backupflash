@@ -1143,6 +1143,10 @@ export default function VoicePage() {
             <Mic className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
           </button>
+          <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <Sparkles className="w-5 h-5 flex-shrink-0 text-fuchsia-300" />
+            <span className="ml-3 font-medium hidden md:block">Tool viết lại truyện</span>
+          </button>
           <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Video className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>

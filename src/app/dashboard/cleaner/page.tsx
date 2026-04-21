@@ -181,6 +181,12 @@ export default function CleanerPage() {
     router.push('/dashboard/podcast');
   };
 
+  const sendToRewriter = () => {
+    if (!resultText.trim()) return;
+    localStorage.setItem('rewriter_prefill_text', resultText);
+    router.push('/dashboard/rewriter');
+  };
+
   if (!user) return (
     <div className="flex h-screen items-center justify-center bg-[#020617]">
       <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -224,6 +230,11 @@ export default function CleanerPage() {
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+
+          <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Type className="w-5 h-5 flex-shrink-0 group-hover:text-fuchsia-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Tool viết lại truyện</span>
           </button>
 
           <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
@@ -345,6 +356,14 @@ export default function CleanerPage() {
                   >
                     <Mic className="w-4 h-4" />
                     Gửi Sang Podcast
+                  </button>
+                  <button
+                    onClick={sendToRewriter}
+                    disabled={!resultText}
+                    className="px-5 py-2.5 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 rounded-xl transition-all text-fuchsia-200 flex items-center gap-2 text-xs font-bold border border-fuchsia-500/20 disabled:opacity-20"
+                  >
+                    <Type className="w-4 h-4" />
+                    Gửi sang tool viết lại truyện
                   </button>
                   <button 
                     onClick={() => { navigator.clipboard.writeText(resultText); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
