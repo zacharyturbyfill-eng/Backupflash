@@ -3,6 +3,30 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 
 type StatsByUser = Record<string, { total: number; today: number }>;
 type DeviceByUser = Record<string, string>;
+type UserLimitConfig = {
+  maxUniqueIps: number;
+  maxCleanActionsPerHour: number;
+  updatedAt: string;
+};
+type SecurityEvent = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  reason: string;
+  detail: string;
+  currentValue?: number | null;
+  limitValue?: number | null;
+  createdAt: string;
+  resolved: boolean;
+  resolvedAt?: string | null;
+};
+
+const USER_LIMIT_PREFIX = 'user_limit:';
+const SECURITY_EVENT_PREFIX = 'security_event:';
+const DEFAULT_USER_LIMITS = {
+  maxUniqueIps: 3,
+  maxCleanActionsPerHour: 60,
+};
 
 function extractDeviceCode(userAgent?: string | null) {
   const raw = String(userAgent || '');
@@ -228,6 +252,68 @@ async function buildUserHistory(
   return history;
 }
 
+async function loadSecurityOverview(
+  supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
+) {
+  const { data: rows, error } = await supabaseAdmin
+    .from('api_vault')
+    .select('id, provider, api_key, created_at')
+    .or(`provider.like.${USER_LIMIT_PREFIX}%,provider.like.${SECURITY_EVENT_PREFIX}%`)
+    .order('created_at', { ascending: false })
+    .limit(1000);
+
+  if (error) throw error;
+
+  const userLimitsByUser: Record<string, UserLimitConfig> = {};
+  const securityEvents: SecurityEvent[] = [];
+
+  for (const row of rows || []) {
+    const provider = String(row.provider || '');
+    const raw = String(row.api_key || '');
+    let parsed: any = null;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (provider.startsWith(USER_LIMIT_PREFIX)) {
+      const userId = provider.slice(USER_LIMIT_PREFIX.length);
+      if (!userId) continue;
+      userLimitsByUser[userId] = {
+        maxUniqueIps: Number(parsed?.maxUniqueIps ?? DEFAULT_USER_LIMITS.maxUniqueIps),
+        maxCleanActionsPerHour: Number(
+          parsed?.maxCleanActionsPerHour ?? DEFAULT_USER_LIMITS.maxCleanActionsPerHour
+        ),
+        updatedAt: String(parsed?.updatedAt || row.created_at || new Date().toISOString()),
+      };
+      continue;
+    }
+
+    if (provider.startsWith(SECURITY_EVENT_PREFIX)) {
+      const event = parsed || {};
+      if (!event.userId) continue;
+      securityEvents.push({
+        id: String(row.id),
+        userId: String(event.userId),
+        userEmail: String(event.userEmail || ''),
+        reason: String(event.reason || 'UNKNOWN'),
+        detail: String(event.detail || ''),
+        currentValue: event.currentValue === undefined ? null : Number(event.currentValue),
+        limitValue: event.limitValue === undefined ? null : Number(event.limitValue),
+        createdAt: String(event.createdAt || row.created_at || new Date().toISOString()),
+        resolved: Boolean(event.resolved),
+        resolvedAt: event.resolvedAt ? String(event.resolvedAt) : null,
+      });
+    }
+  }
+
+  securityEvents.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  return { userLimitsByUser, securityEvents };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const guard = await assertAdmin(req);
@@ -249,6 +335,87 @@ export async function POST(req: NextRequest) {
       }
       const history = await buildUserHistory(supabaseAdmin, userId);
       return NextResponse.json({ history });
+    }
+
+    if (action === 'get_security_overview') {
+      const overview = await loadSecurityOverview(supabaseAdmin);
+      return NextResponse.json(overview);
+    }
+
+    if (action === 'set_user_limits') {
+      const userId = String(body?.userId || '').trim();
+      if (!userId) {
+        return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 });
+      }
+
+      const maxUniqueIps = Math.max(2, Math.min(50, Number(body?.maxUniqueIps || 3)));
+      const maxCleanActionsPerHour = Math.max(
+        1,
+        Math.min(10000, Number(body?.maxCleanActionsPerHour || 60))
+      );
+
+      const provider = `${USER_LIMIT_PREFIX}${userId}`;
+      const payload = {
+        maxUniqueIps,
+        maxCleanActionsPerHour,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { data: existing } = await supabaseAdmin
+        .from('api_vault')
+        .select('id')
+        .eq('provider', provider)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        const { error } = await supabaseAdmin
+          .from('api_vault')
+          .update({ api_key: JSON.stringify(payload) })
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseAdmin.from('api_vault').insert({
+          provider,
+          api_key: JSON.stringify(payload),
+        });
+        if (error) throw error;
+      }
+
+      return NextResponse.json({ success: true, limits: payload });
+    }
+
+    if (action === 'resolve_security_event') {
+      const eventId = String(body?.eventId || '').trim();
+      if (!eventId) {
+        return NextResponse.json({ error: 'Thiếu eventId' }, { status: 400 });
+      }
+
+      const { data: row, error: rowError } = await supabaseAdmin
+        .from('api_vault')
+        .select('id, api_key')
+        .eq('id', eventId)
+        .maybeSingle();
+      if (rowError || !row) {
+        return NextResponse.json({ error: 'Không tìm thấy event' }, { status: 404 });
+      }
+
+      let payload: any = {};
+      try {
+        payload = row.api_key ? JSON.parse(row.api_key) : {};
+      } catch {
+        payload = {};
+      }
+      payload.resolved = true;
+      payload.resolvedAt = new Date().toISOString();
+
+      const { error: updateError } = await supabaseAdmin
+        .from('api_vault')
+        .update({ api_key: JSON.stringify(payload) })
+        .eq('id', eventId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });

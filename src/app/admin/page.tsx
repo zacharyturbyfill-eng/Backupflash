@@ -28,6 +28,23 @@ export default function AdminPage() {
     input_preview?: string;
     full_text?: string;
   };
+  type UserLimitConfig = {
+    maxUniqueIps: number;
+    maxCleanActionsPerHour: number;
+    updatedAt: string;
+  };
+  type SecurityEvent = {
+    id: string;
+    userId: string;
+    userEmail: string;
+    reason: string;
+    detail: string;
+    currentValue?: number | null;
+    limitValue?: number | null;
+    createdAt: string;
+    resolved: boolean;
+    resolvedAt?: string | null;
+  };
 
   const isMinimaxProvider = (provider?: string | null) =>
     typeof provider === 'string' && provider.startsWith('minimax');
@@ -144,6 +161,12 @@ export default function AdminPage() {
   const [ai84UsageByUser, setAi84UsageByUser] = useState<Record<string, { total: number; today: number }>>({});
   const [textUsageByUser, setTextUsageByUser] = useState<Record<string, number>>({});
   const [expandedHistoryIds, setExpandedHistoryIds] = useState<Record<string, boolean>>({});
+  const [userLimitsByUser, setUserLimitsByUser] = useState<Record<string, UserLimitConfig>>({});
+  const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [editingLimitUser, setEditingLimitUser] = useState<any>(null);
+  const [limitForm, setLimitForm] = useState({ maxUniqueIps: 3, maxCleanActionsPerHour: 60 });
+  const [limitSaveLoading, setLimitSaveLoading] = useState(false);
 
   const [selectedPrompt, setSelectedPrompt] = useState<any>(null);
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -226,6 +249,23 @@ export default function AdminPage() {
           kind: 'error',
           message: statsJson?.error || 'Không tải được thống kê ký tự nhân viên.',
         });
+      }
+
+      const securityRes = await fetch('/api/admin/analytics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: 'get_security_overview' }),
+      });
+      const securityJson = await securityRes.json();
+      if (securityRes.ok) {
+        setUserLimitsByUser(securityJson.userLimitsByUser || {});
+        setSecurityEvents(securityJson.securityEvents || []);
+      } else {
+        setUserLimitsByUser({});
+        setSecurityEvents([]);
       }
 
       const { data: pData } = await supabase.from('prompt_history').select('*').order('created_at', { ascending: false }).limit(50);
@@ -540,6 +580,68 @@ export default function AdminPage() {
     }
   };
 
+  const openUserLimitConfig = (profile: any) => {
+    const saved = userLimitsByUser[profile.id];
+    setEditingLimitUser(profile);
+    setLimitForm({
+      maxUniqueIps: Number(saved?.maxUniqueIps || 3),
+      maxCleanActionsPerHour: Number(saved?.maxCleanActionsPerHour || 60),
+    });
+    setShowLimitModal(true);
+  };
+
+  const saveUserLimitConfig = async () => {
+    if (!editingLimitUser?.id) return;
+    setLimitSaveLoading(true);
+    try {
+      const accessToken = await getAccessToken();
+      const res = await fetch('/api/admin/analytics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: 'set_user_limits',
+          userId: editingLimitUser.id,
+          maxUniqueIps: limitForm.maxUniqueIps,
+          maxCleanActionsPerHour: limitForm.maxCleanActionsPerHour,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(json.error || 'Không thể cập nhật giới hạn.');
+        return;
+      }
+      await fetchData();
+      setShowLimitModal(false);
+      alert('Đã cập nhật giới hạn thao tác.');
+    } finally {
+      setLimitSaveLoading(false);
+    }
+  };
+
+  const resolveSecurityEvent = async (eventId: string) => {
+    const accessToken = await getAccessToken();
+    const res = await fetch('/api/admin/analytics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        action: 'resolve_security_event',
+        eventId,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      alert(json.error || 'Không thể cập nhật cảnh báo.');
+      return;
+    }
+    await fetchData();
+  };
+
   const formatTimeAgo = (date: string | null) => {
     if (!date) return 'Chưa hoạt động';
     const now = new Date();
@@ -621,16 +723,20 @@ export default function AdminPage() {
                                  ai84 tổng: {(ai84UsageByUser[p.id]?.total || 0).toLocaleString()} ký tự
                                </p>
                                <p className="text-cyan-300/70 mt-1">
-                                 Tổng ký tự task: {(textUsageByUser[p.id] || 0).toLocaleString()}
-                               </p>
-                            </td>
-                            <td className="px-8 py-6">
-                               <div className="flex gap-2">
-                                 <button onClick={() => viewUserIPs(p.id)} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-slate-500 hover:text-white transition-all"><Globe size={14}/></button>
-                                 <button onClick={() => viewUserWorkHistory(p.id)} className="p-2.5 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-xl text-indigo-400 transition-all border border-indigo-500/10"><FileText size={14}/></button>
-                                 <button onClick={() => openUserReminderConfig(p)} className="p-2.5 bg-amber-500/5 hover:bg-amber-500/10 rounded-xl text-amber-400 transition-all border border-amber-500/10"><AlertCircle size={14}/></button>
-                               </div>
-                            </td>
+                                  Tổng ký tự task: {(textUsageByUser[p.id] || 0).toLocaleString()}
+                                </p>
+                                <p className="text-[10px] text-amber-300/80 mt-2">
+                                  Giới hạn: {Number(userLimitsByUser[p.id]?.maxCleanActionsPerHour || 60).toLocaleString()} lượt/giờ | {Number(userLimitsByUser[p.id]?.maxUniqueIps || 3)} IP
+                                </p>
+                             </td>
+                             <td className="px-8 py-6">
+                                <div className="flex gap-2">
+                                  <button onClick={() => viewUserIPs(p.id)} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-slate-500 hover:text-white transition-all"><Globe size={14}/></button>
+                                  <button onClick={() => viewUserWorkHistory(p.id)} className="p-2.5 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-xl text-indigo-400 transition-all border border-indigo-500/10"><FileText size={14}/></button>
+                                  <button onClick={() => openUserReminderConfig(p)} className="p-2.5 bg-amber-500/5 hover:bg-amber-500/10 rounded-xl text-amber-400 transition-all border border-amber-500/10"><AlertCircle size={14}/></button>
+                                  <button onClick={() => openUserLimitConfig(p)} className="p-2.5 bg-rose-500/5 hover:bg-rose-500/10 rounded-xl text-rose-300 transition-all border border-rose-500/20" title="Giới hạn bảo mật"><ShieldCheck size={14}/></button>
+                                </div>
+                             </td>
                             <td className="px-8 py-6">
                                <div className="flex gap-2">
                                  <button onClick={() => handleStatusUpdate(p.id, p.status === 'blocked' ? 'approved' : 'blocked')} className={`p-2.5 rounded-xl transition-all ${p.status === 'blocked' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
@@ -643,7 +749,47 @@ export default function AdminPage() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                   </div>
+                   <div className="border-t border-white/5 p-6 md:p-8 space-y-4">
+                     <div className="flex items-center justify-between">
+                       <h4 className="text-[11px] font-black uppercase tracking-widest text-rose-300">Cảnh báo bảo mật nhân viên</h4>
+                       <span className="text-[10px] text-slate-500">Hiển thị {securityEvents.length} sự kiện gần nhất</span>
+                     </div>
+                     <div className="space-y-3 max-h-[320px] overflow-y-auto scrollbar-hide">
+                       {securityEvents.map((event) => (
+                         <div key={event.id} className={`rounded-2xl border p-4 ${event.resolved ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-rose-500/20 bg-rose-500/5'}`}>
+                           <div className="flex items-center justify-between gap-4 mb-2">
+                             <div>
+                               <p className="text-xs text-slate-100 font-bold">{event.userEmail || event.userId}</p>
+                               <p className="text-[10px] text-slate-400">{formatTimeAgo(event.createdAt)} | {event.reason}</p>
+                             </div>
+                             {!event.resolved ? (
+                               <button
+                                 type="button"
+                                 onClick={() => resolveSecurityEvent(event.id)}
+                                 className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-[10px] font-bold uppercase tracking-widest"
+                               >
+                                 Đã xử lý
+                               </button>
+                             ) : (
+                               <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest">Resolved</span>
+                             )}
+                           </div>
+                           <p className="text-[11px] text-slate-200">{event.detail}</p>
+                           {(event.currentValue !== null && event.currentValue !== undefined) && (
+                             <p className="text-[10px] text-amber-300/80 mt-1">
+                               Giá trị hiện tại: {event.currentValue} | Ngưỡng: {event.limitValue ?? 'n/a'}
+                             </p>
+                           )}
+                         </div>
+                       ))}
+                       {securityEvents.length === 0 && (
+                         <p className="text-[11px] italic text-slate-500 border border-dashed border-white/10 rounded-2xl p-4">
+                           Chưa có cảnh báo bảo mật nào.
+                         </p>
+                       )}
+                     </div>
+                   </div>
                 </motion.section>
               ) : activeTab === 'prompts' ? (
                 <motion.section key="prompts" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="glass-card rounded-[2.5rem] overflow-hidden">
@@ -1189,6 +1335,66 @@ export default function AdminPage() {
                 </button>
                 <button onClick={saveUserReminderConfig} disabled={reminderSaveLoading} className="px-5 py-3 rounded-xl bg-amber-500/20 border border-amber-400/30 text-amber-100 font-bold disabled:opacity-40">
                   {reminderSaveLoading ? 'Đang lưu...' : 'Lưu nhắc nhở'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showLimitModal && editingLimitUser && (
+          <div className="fixed inset-0 z-[165] flex items-center justify-center p-6 bg-[#020617]/90 backdrop-blur-2xl">
+            <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }} className="max-w-xl w-full glass-card border-white/10 rounded-[2.5rem] p-8">
+              <h3 className="text-2xl font-bold text-white mb-2">Giới Hạn Thao Tác Nhân Viên</h3>
+              <p className="text-xs text-slate-400 mb-6">
+                Nhân viên: <span className="text-rose-300 font-bold">{String(editingLimitUser.email || '').split('@')[0]}</span>
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Số IP tối đa trước khi chặn</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={50}
+                    value={limitForm.maxUniqueIps}
+                    onChange={(e) =>
+                      setLimitForm((prev) => ({
+                        ...prev,
+                        maxUniqueIps: Math.max(2, Math.min(50, Number(e.target.value || 2))),
+                      }))
+                    }
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">Số lần làm sạch tối đa / 1 giờ</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={limitForm.maxCleanActionsPerHour}
+                    onChange={(e) =>
+                      setLimitForm((prev) => ({
+                        ...prev,
+                        maxCleanActionsPerHour: Math.max(
+                          1,
+                          Math.min(10000, Number(e.target.value || 1))
+                        ),
+                      }))
+                    }
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-end gap-3">
+                <button onClick={() => setShowLimitModal(false)} className="px-5 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-all">
+                  Hủy
+                </button>
+                <button onClick={saveUserLimitConfig} disabled={limitSaveLoading} className="px-5 py-3 rounded-xl bg-rose-500/20 border border-rose-400/30 text-rose-100 font-bold disabled:opacity-40">
+                  {limitSaveLoading ? 'Đang lưu...' : 'Lưu giới hạn'}
                 </button>
               </div>
             </motion.div>

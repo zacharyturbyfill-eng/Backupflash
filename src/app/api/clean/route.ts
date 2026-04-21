@@ -6,6 +6,12 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 const supabaseAdmin = createSupabaseAdminClient();
 const CLEAN_CHUNK_SIZE = 10000;
 const CLEAN_TITLE_PREFIX = 'CLEAN_TITLE|';
+const USER_LIMIT_PREFIX = 'user_limit:';
+const SECURITY_EVENT_PREFIX = 'security_event:';
+const DEFAULT_USER_LIMITS = {
+  maxUniqueIps: 3,
+  maxCleanActionsPerHour: 60,
+};
 
 const splitTextSmartly = (text: string, maxLength: number = CLEAN_CHUNK_SIZE): string[] => {
   const lines = String(text || '').split('\n');
@@ -64,6 +70,57 @@ const normalizeTitleKey = (title: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const getUserLimits = async (userId: string) => {
+  const provider = `${USER_LIMIT_PREFIX}${userId}`;
+  const { data: row } = await supabaseAdmin
+    .from('api_vault')
+    .select('api_key')
+    .eq('provider', provider)
+    .limit(1)
+    .maybeSingle();
+
+  let parsed: any = {};
+  try {
+    parsed = row?.api_key ? JSON.parse(String(row.api_key)) : {};
+  } catch {
+    parsed = {};
+  }
+
+  return {
+    maxUniqueIps: Math.max(2, Number(parsed?.maxUniqueIps ?? DEFAULT_USER_LIMITS.maxUniqueIps)),
+    maxCleanActionsPerHour: Math.max(
+      1,
+      Number(parsed?.maxCleanActionsPerHour ?? DEFAULT_USER_LIMITS.maxCleanActionsPerHour)
+    ),
+  };
+};
+
+const logSecurityEvent = async (args: {
+  userId: string;
+  userEmail: string;
+  reason: 'TOO_MANY_IPS' | 'TOO_MANY_CLEAN_ACTIONS';
+  detail: string;
+  currentValue?: number;
+  limitValue?: number;
+}) => {
+  const payload = {
+    userId: args.userId,
+    userEmail: args.userEmail,
+    reason: args.reason,
+    detail: args.detail,
+    currentValue: args.currentValue ?? null,
+    limitValue: args.limitValue ?? null,
+    createdAt: new Date().toISOString(),
+    resolved: false,
+    resolvedAt: null,
+  };
+
+  await supabaseAdmin.from('api_vault').insert({
+    provider: `${SECURITY_EVENT_PREFIX}${Date.now()}:${args.userId}`,
+    api_key: JSON.stringify(payload),
+  });
+};
+
 const cleanWithOpenAI = async (apiKey: string, text: string): Promise<string> => {
   const openai = new OpenAI({ apiKey: apiKey.trim() });
   const chunks = splitTextSmartly(text, CLEAN_CHUNK_SIZE);
@@ -121,6 +178,7 @@ export async function POST(req: NextRequest) {
     if (profile.status === 'blocked') return NextResponse.json({ error: 'Tài khoản bị chặn vì lý do bảo mật.' }, { status: 403 });
     if (profile.current_session_id !== sessionId) return NextResponse.json({ error: 'Phiên làm việc hết hạn.' }, { status: 401 });
 
+    const limits = await getUserLimits(userId);
     const title = extractTranscriptTitle(text);
     const normalizedTitle = normalizeTitleKey(title);
     if (normalizedTitle) {
@@ -166,10 +224,45 @@ export async function POST(req: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(50);
       const uniqueIps = new Set((recentIps || []).map((l: any) => String(l.ip_address || '')));
-      if (uniqueIps.size > 3 && profile.role !== 'admin') {
+      if (uniqueIps.size > limits.maxUniqueIps && profile.role !== 'admin') {
+        await logSecurityEvent({
+          userId,
+          userEmail: String(profile.email || ''),
+          reason: 'TOO_MANY_IPS',
+          detail: `Đăng nhập từ quá nhiều IP trong thời gian ngắn`,
+          currentValue: uniqueIps.size,
+          limitValue: limits.maxUniqueIps,
+        });
         await supabaseAdmin.from('profiles').update({ status: 'blocked' }).eq('id', userId);
         return NextResponse.json({ error: 'Tài khoản bị chặn vì lý do bảo mật' }, { status: 403 });
       }
+    }
+
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: cleanCount, error: cleanCountError } = await supabaseAdmin
+      .from('cleaning_history')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', oneHourAgo);
+    if (cleanCountError) {
+      return NextResponse.json({ error: cleanCountError.message }, { status: 500 });
+    }
+
+    const recentCleanActions = Number(cleanCount || 0);
+    if (recentCleanActions >= limits.maxCleanActionsPerHour && profile.role !== 'admin') {
+      await logSecurityEvent({
+        userId,
+        userEmail: String(profile.email || ''),
+        reason: 'TOO_MANY_CLEAN_ACTIONS',
+        detail: 'Vượt giới hạn thao tác làm sạch trong 1 giờ',
+        currentValue: recentCleanActions,
+        limitValue: limits.maxCleanActionsPerHour,
+      });
+      await supabaseAdmin.from('profiles').update({ status: 'blocked' }).eq('id', userId);
+      return NextResponse.json(
+        { error: 'Tài khoản bị chặn tạm thời do thao tác quá nhiều. Vui lòng liên hệ quản trị viên.' },
+        { status: 403 }
+      );
     }
 
     // 4. Xử lý AI & Lấy Key từ Kho Khóa Tổng (api_vault) nếu cần
