@@ -41,7 +41,7 @@ export default function PodcastPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
-  const [geminiModel, setGeminiModel] = useState<"gemini-2.5-flash" | "gemini-2.5-flash-lite-preview-06-17">("gemini-2.5-flash");
+  const [geminiModel, setGeminiModel] = useState<"gemini-2.5-flash" | "gemini-2.5-flash-lite">("gemini-2.5-flash");
   const [inputText, setInputText] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [lines, setLines] = useState<DialogueLine[]>([]);
@@ -275,7 +275,7 @@ export default function PodcastPage() {
             </h2>
             <p className="text-slate-500 text-[11px] uppercase tracking-widest font-black">
               {provider === "gemini"
-                ? geminiModel === "gemini-2.5-flash"
+                  ? geminiModel === "gemini-2.5-flash"
                   ? "Gemini 2.5 Flash"
                   : "Gemini 2.5 Flash Lite"
                 : "GPT-4.1 mini"}
@@ -323,9 +323,9 @@ export default function PodcastPage() {
                     <span className="text-[10px] font-black uppercase tracking-widest">Flash</span>
                   </button>
                   <button
-                    onClick={() => setGeminiModel("gemini-2.5-flash-lite-preview-06-17")}
+                    onClick={() => setGeminiModel("gemini-2.5-flash-lite")}
                     className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${
-                      geminiModel === "gemini-2.5-flash-lite-preview-06-17"
+                      geminiModel === "gemini-2.5-flash-lite"
                         ? "bg-violet-600 text-white shadow-lg"
                         : "text-slate-500 hover:bg-white/5"
                     }`}
@@ -496,7 +496,7 @@ export default function PodcastPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">
-                        {h.provider === "openai" ? "GPT-4.1 mini" : h.model === "gemini-2.5-flash-lite-preview-06-17" ? "Gemini Flash Lite" : "Gemini Flash"}
+                        {h.provider === "openai" ? "GPT-4.1 mini" : h.model === "gemini-2.5-flash-lite" ? "Gemini Flash Lite" : "Gemini Flash"}
                       </span>
                       <span className="text-[10px] text-slate-500">{new Date(h.created_at).toLocaleString()}</span>
                     </div>
