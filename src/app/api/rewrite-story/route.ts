@@ -74,21 +74,13 @@ ${originalChunk}
 Chỉ trả về nội dung đã viết lại, không thêm giải thích.
 `;
 
-const rewriteWithGemini = async (apiKey: string, prompt: string) => {
+const rewriteWithGemini = async (apiKey: string, prompt: string, geminiModel: string = 'gemini-2.5-flash') => {
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-    });
-    return String(response.text || "").trim();
-  } catch {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-    });
-    return String(response.text || "").trim();
-  }
+  const response = await ai.models.generateContent({
+    model: geminiModel,
+    contents: prompt,
+  });
+  return String(response.text || '').trim();
 };
 
 const rewriteWithOpenAI = async (apiKey: string, prompt: string) => {
@@ -112,7 +104,8 @@ const rewriteWithOpenAI = async (apiKey: string, prompt: string) => {
 
 export async function POST(req: NextRequest) {
   try {
-    const { text, userId, provider, renameCharacters } = await req.json();
+    const { text, userId, provider, geminiModel, renameCharacters } = await req.json();
+    const resolvedGeminiModel = geminiModel === 'gemini-2.5-flash-lite' ? 'gemini-2.5-flash-lite' : 'gemini-2.5-flash';
     if (!text || !userId) {
       return NextResponse.json({ error: "Thiếu text hoặc userId." }, { status: 400 });
     }
@@ -163,7 +156,7 @@ export async function POST(req: NextRequest) {
       const output =
         selectedProvider === "openai"
           ? await rewriteWithOpenAI(finalKey, prompt)
-          : await rewriteWithGemini(finalKey, prompt);
+          : await rewriteWithGemini(finalKey, prompt, resolvedGeminiModel);
 
       rewrittenChunks.push(output || chunks[i]);
     }

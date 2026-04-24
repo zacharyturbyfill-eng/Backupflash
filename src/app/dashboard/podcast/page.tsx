@@ -220,10 +220,6 @@ export default function PodcastPage() {
             <Sparkles className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Làm Sạch Transcript</span>
           </button>
-          <button onClick={() => router.push("/dashboard/prompter")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
-            <Video className="w-5 h-5 flex-shrink-0" />
-            <span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span>
-          </button>
           <button onClick={() => router.push("/dashboard/voice")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Volume2 className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span>

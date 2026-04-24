@@ -19,6 +19,7 @@ export default function CleanerPage() {
   const [user, setUser] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [geminiModel, setGeminiModel] = useState<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('gemini-2.5-flash');
   
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -121,6 +122,7 @@ export default function CleanerPage() {
           userId: user.id,
           sessionId: sessionId,
           provider: provider,
+          geminiModel,
           confirmDuplicate,
         }),
       });
@@ -210,11 +212,6 @@ export default function CleanerPage() {
             <span className="ml-3 font-semibold hidden md:block">Làm Sạch Transcript</span>
           </button>
 
-          {/* Module Tạo Prompt Video */}
-          <button onClick={() => router.push('/dashboard/prompter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
-            <Video className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
-            <span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span>
-          </button>
 
           {/* Module Giọng Nói AI */}
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
@@ -284,21 +281,21 @@ export default function CleanerPage() {
                 <Clock size={14}/> Lịch Sử Làm Sạch
               </button>
 
-              <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
-                  <button 
-                    onClick={() => setProvider('gemini')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'gemini' ? 'btn-ombre text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
-                  >
-                    <Cpu size={14} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
+              <div className="flex items-center gap-2">
+                <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                  <button onClick={() => setProvider('gemini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'gemini' ? 'btn-ombre text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
+                    <Cpu size={14} /><span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
                   </button>
-                  <button 
-                    onClick={() => setProvider('openai')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'openai' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
-                  >
-                    <Zap size={14} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
+                  <button onClick={() => setProvider('openai')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'openai' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
+                    <Zap size={14} /><span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
                   </button>
+                </div>
+                {provider === 'gemini' && (
+                  <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                    <button onClick={() => setGeminiModel('gemini-2.5-flash')} className={`px-3 py-2 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${geminiModel === 'gemini-2.5-flash' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>Flash</button>
+                    <button onClick={() => setGeminiModel('gemini-2.5-flash-lite')} className={`px-3 py-2 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${geminiModel === 'gemini-2.5-flash-lite' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>Lite</button>
+                  </div>
+                )}
               </div>
           </div>
         </header>

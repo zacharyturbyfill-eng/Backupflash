@@ -137,14 +137,14 @@ const cleanWithOpenAI = async (apiKey: string, text: string): Promise<string> =>
   return outputs.join('\n\n').trim();
 };
 
-const cleanWithGemini = async (apiKey: string, text: string): Promise<string> => {
+const cleanWithGemini = async (apiKey: string, text: string, geminiModel: string = 'gemini-2.5-flash'): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
   const chunks = splitTextSmartly(text, CLEAN_CHUNK_SIZE);
   const outputs: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: geminiModel,
       contents: buildCleanPrompt(chunks[i], i, chunks.length),
     });
     outputs.push((response.text || '').trim());
@@ -155,7 +155,8 @@ const cleanWithGemini = async (apiKey: string, text: string): Promise<string> =>
 
 export async function POST(req: NextRequest) {
   try {
-    const { text, userId, sessionId, provider, confirmDuplicate } = await req.json();
+    const { text, userId, sessionId, provider, geminiModel, confirmDuplicate } = await req.json();
+    const resolvedGeminiModel = geminiModel === 'gemini-2.5-flash-lite' ? 'gemini-2.5-flash-lite' : 'gemini-2.5-flash';
 
     if (!text || !userId || !sessionId) {
       return NextResponse.json({ error: 'Thiếu thông tin xác thực hoặc văn bản.' }, { status: 400 });
@@ -288,7 +289,7 @@ export async function POST(req: NextRequest) {
       }
       if (!finalKey) return NextResponse.json({ error: 'Chưa có API Key Gemini.' }, { status: 403 });
 
-      cleanedText = await cleanWithGemini(finalKey, text);
+      cleanedText = await cleanWithGemini(finalKey, text, resolvedGeminiModel);
     }
 
     // 5. CẬP NHẬT GIÁM SÁT & GHI LỊCH SỬ THỜI GIAN THỰC

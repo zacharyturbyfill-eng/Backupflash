@@ -24,6 +24,7 @@ export default function RewriterPage() {
   const [inputText, setInputText] = useState("");
   const [resultText, setResultText] = useState("");
   const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
+  const [geminiModel, setGeminiModel] = useState<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('gemini-2.5-flash');
   const [renameCharacters, setRenameCharacters] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -97,6 +98,7 @@ export default function RewriterPage() {
           text: inputText,
           userId: user.id,
           provider,
+          geminiModel,
           renameCharacters,
         }),
       });
@@ -146,10 +148,7 @@ export default function RewriterPage() {
             <Sparkles className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Làm Sạch Transcript</span>
           </button>
-          <button onClick={() => router.push("/dashboard/prompter")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
-            <Video className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
-            <span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span>
-          </button>
+
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
             <Type className="w-5 h-5 flex-shrink-0 text-fuchsia-300" />
             <span className="ml-3 font-semibold hidden md:block">Tool viết lại truyện</span>
@@ -210,19 +209,21 @@ export default function RewriterPage() {
             >
               <Clock size={14} /> Lịch Sử
             </button>
-            <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
-              <button
-                onClick={() => setProvider("gemini")}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "gemini" ? "btn-ombre text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}
-              >
-                <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
-              </button>
-              <button
-                onClick={() => setProvider("openai")}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "openai" ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}
-              >
-                <span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
-              </button>
+            <div className="flex items-center gap-2">
+              <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                <button onClick={() => setProvider("gemini")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "gemini" ? "btn-ombre text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
+                </button>
+                <button onClick={() => setProvider("openai")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "openai" ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
+                  <span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
+                </button>
+              </div>
+              {provider === "gemini" && (
+                <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                  <button onClick={() => setGeminiModel('gemini-2.5-flash')} className={`px-3 py-2 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${geminiModel === 'gemini-2.5-flash' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>Flash</button>
+                  <button onClick={() => setGeminiModel('gemini-2.5-flash-lite')} className={`px-3 py-2 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest ${geminiModel === 'gemini-2.5-flash-lite' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>Lite</button>
+                </div>
+              )}
             </div>
           </div>
         </header>

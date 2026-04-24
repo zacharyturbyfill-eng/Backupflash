@@ -174,6 +174,7 @@ export default function Medical3Page() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [provider, setProvider] = useState<ModelProvider>('gemini');
+  const [geminiModel, setGeminiModel] = useState<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('gemini-2.5-flash');
   const [seoPackage, setSeoPackage] = useState<SeoPackage | null>(null);
   const [showSeoBox, setShowSeoBox] = useState(false);
   const [copiedSeo, setCopiedSeo] = useState(false);
@@ -226,6 +227,7 @@ export default function Medical3Page() {
       body: JSON.stringify({
         action: 'generate_batch',
         provider,
+        geminiModel,
         userId: user.id,
         segments: batch.map((b) => ({ index: b.index, relevantContext: b.relevantContext })),
         localContext,
@@ -291,6 +293,7 @@ export default function Medical3Page() {
         body: JSON.stringify({
           action: 'save_history',
           provider,
+          geminiModel,
           userId: user.id,
           transcript,
           settings,
@@ -368,6 +371,7 @@ export default function Medical3Page() {
           action: 'generate_seo',
           userId: user.id,
           provider,
+          geminiModel,
           transcript,
         }),
       });
@@ -488,7 +492,6 @@ export default function Medical3Page() {
         </div>
         <nav className="flex-1 py-8 px-3 space-y-2">
           <button onClick={() => router.push('/dashboard/cleaner')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Sparkles className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Làm Sạch Transcript</span></button>
-          <button onClick={() => router.push('/dashboard/prompter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Video className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Tạo Prompt Video</span></button>
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Volume2 className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span></button>
           <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Volume2 className="w-5 h-5 flex-shrink-0 text-cyan-400" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span></button>
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all"><Mic className="w-5 h-5 flex-shrink-0" /><span className="ml-3 font-medium hidden md:block">Podcast Studio</span></button>
@@ -603,21 +606,10 @@ export default function Medical3Page() {
             </h2>
             <div className="mb-4">
               <label className="block text-sm font-medium text-slate-400 mb-2">Mô hình ngôn ngữ</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setProvider('gemini')}
-                  disabled={isProcessing}
-                  className={`h-10 rounded-lg border text-sm font-semibold transition-all ${provider === 'gemini' ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'}`}
-                >
-                  Gemini Flash
-                </button>
-                <button
-                  onClick={() => setProvider('openai')}
-                  disabled={isProcessing}
-                  className={`h-10 rounded-lg border text-sm font-semibold transition-all ${provider === 'openai' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'}`}
-                >
-                  GPT-4.1 mini
-                </button>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => setProvider('gemini')} disabled={isProcessing} className={`h-10 rounded-lg border text-sm font-semibold transition-all ${provider === 'gemini' ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'}`}>Gemini Flash</button>
+                <button onClick={() => setProvider('openai')} disabled={isProcessing} className={`h-10 rounded-lg border text-sm font-semibold transition-all ${provider === 'openai' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'}`}>GPT-4.1 mini</button>
+                <button onClick={() => { setProvider('gemini'); setGeminiModel('gemini-2.5-flash-lite'); }} disabled={isProcessing} className={`h-10 rounded-lg border text-sm font-semibold transition-all ${provider === 'gemini' && geminiModel === 'gemini-2.5-flash-lite' ? 'bg-violet-600 text-white border-violet-500' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'}`}>Flash Lite</button>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
