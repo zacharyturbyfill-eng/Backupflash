@@ -25,8 +25,7 @@ const VEO_SEGMENT_DURATION_MS = 8000;
 
 // ─── PARSERS ──────────────────────────────────────────────────────────────────
 const parseTimestampToMs = (ts: string): number | null => {
-  const r = /(\\d{2}):(\\d{2}):(\\d{2})[.,](\\d{3})/;
-  const m = ts.match(r);
+  const m = ts.match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
   if (!m) return null;
   return Number(m[1]) * 3600000 + Number(m[2]) * 60000 + Number(m[3]) * 1000 + Number(m[4]);
 };
