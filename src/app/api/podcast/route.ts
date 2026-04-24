@@ -199,36 +199,51 @@ export async function POST(req: NextRequest) {
     }
 
     const chunks = chunkText(inputText, 2500);
+
+    // Detect the language of the input so the AI outputs in the same language.
+    // We sample the first 300 chars, ask the AI to name the language (ISO name, e.g. "Japanese", "Vietnamese", "English").
+    // We embed this detected language explicitly into every prompt so the model cannot drift to Vietnamese.
+    let detectedLanguage = 'the same language as the source text';
+    try {
+      const langAi = new GoogleGenAI({ apiKey: key.trim() });
+      const langRes = await langAi.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `Identify the language of the following text and reply with ONLY the language name in English (e.g. "Japanese", "Vietnamese", "English", "Korean"). Text: """${inputText.slice(0, 300)}"""`,
+      });
+      const raw = (langRes.text || '').trim().replace(/[^a-zA-Z]/g, '');
+      if (raw.length > 2 && raw.length < 40) detectedLanguage = raw;
+    } catch {
+      // fallback: keep generic instruction
+    }
+
     const roleGuide = activeRoles
       .map((r) => {
-        const roleLabel = r.roleType === 'Host' ? 'MC' : r.roleType === 'Doctor' ? 'Bác sĩ' : 'Khách mời';
-        return `${roleLabel}: tên ${r.name}, giới tính ${r.gender}.`;
+        const roleLabel = r.roleType === 'Host' ? 'Host' : r.roleType === 'Doctor' ? 'Doctor' : 'Guest';
+        return `${roleLabel}: name is ${r.name}, gender ${r.gender}.`;
       })
       .join('\n');
     const isMonologue = activeRoles.length === 1;
     const firstRole = activeRoles[0];
     const systemInstruction = isMonologue
-      ? `
-Bạn là biên tập viên podcast chuyên nghiệp. Viết thành độc thoại tự nhiên.
-Vai chính: ${firstRole.name}.
-Yêu cầu:
-1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".
-2. Xem nội dung là kiến thức/câu chuyện của chính người nói.
-3. Giữ đúng ngôn ngữ của đầu vào.
-4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.
+      ? `You are a professional podcast editor. Convert the source content into a natural monologue.
+Main speaker: ${firstRole.name}.
+Rules:
+1. ALWAYS write the entire output in ${detectedLanguage}. Do NOT translate or switch languages under any circumstances.
+2. Never say "according to the text", "as mentioned above", or "as given".
+3. Treat the content as the speaker's own knowledge and story.
+4. Greet the audience only once in the very first chunk; do not repeat in subsequent chunks.
 `
-      : `
-Bạn là biên kịch podcast chuyên nghiệp. Viết thành hội thoại tự nhiên nhiều nhân vật.
-Danh sách nhân vật:
+      : `You are a professional podcast scriptwriter. Convert the source content into a natural multi-character dialogue.
+Character list:
 ${roleGuide}
-Yêu cầu:
-1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".
-2. Tự kể lại sao cho người nghe không cần xem văn bản gốc.
-3. Giữ đúng ngôn ngữ của đầu vào.
-4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.
-5. Giới tính chỉ để hiểu ngữ cảnh nhân vật, không ép buộc mẫu xưng hô cứng.
-6. Trong mọi tình huống, MC luôn xưng tên của mình khi nói và mở câu với "thưa bác sĩ" khi trao đổi chuyên môn.
-7. Bác sĩ luôn gọi tên MC và luôn xưng "tôi" khi nói với MC hoặc với bác sĩ khác (nếu có), không đổi ngôi thất thường.
+Rules:
+1. ALWAYS write the entire output in ${detectedLanguage}. Do NOT translate or switch languages under any circumstances.
+2. Never say "according to the text", "as mentioned above", or "as given".
+3. Retell the content so listeners don't need to read the source.
+4. Greet the audience only once in the very first chunk; do not repeat in subsequent chunks.
+5. Gender is only for character context, not to enforce rigid speech patterns.
+6. The Host always refers to themselves by their name and addresses the Doctor formally when discussing professional topics.
+7. The Doctor always addresses the Host by name and refers to themselves in first person consistently.
 `;
 
     const finalLines: DialogueLine[] = [];
@@ -236,18 +251,18 @@ Yêu cầu:
       const chunk = chunks[i];
       const isFirst = i === 0;
       const isLast = i === chunks.length - 1;
-      const prompt = `
-Nội dung nguồn:
+      const prompt = `Source content:
 """${chunk}"""
 
-Ràng buộc:
-- ${isFirst ? 'Bắt đầu tự nhiên (chào mở đầu ngắn gọn).' : 'Không được chào lại hoặc giới thiệu lại chương trình.'}
-- ${isLast ? 'Kết thúc bằng một đoạn tổng kết ngắn.' : 'Kết thúc mở để nối mạch sang phần tiếp theo.'}
-- Không được lược bỏ ý quan trọng. Mỗi luận điểm/diễn biến/chỉ dẫn chính trong chunk nguồn phải được thể hiện lại trong hội thoại.
-- Giữ trọn vẹn mạch logic: nguyên nhân -> diễn biến -> kết luận (nếu có).
-- Không tóm tắt quá ngắn; ưu tiên đầy đủ ý hơn là viết gọn.
-- Mỗi lượt thoại phải là câu/đoạn hoàn chỉnh, tránh tách vụn một ý thành nhiều dòng liên tiếp cùng một người nói.
-- Chuyển thể tự nhiên, KHÔNG bê nguyên văn từng câu từ nguồn gốc.
+Constraints:
+- Output language: ${detectedLanguage}. Every word of dialogue MUST be in ${detectedLanguage}.
+- ${isFirst ? 'Open naturally with a brief greeting.' : 'Do NOT re-greet or re-introduce the show.'}
+- ${isLast ? 'End with a short summary/closing.' : 'End openly so the next chunk connects naturally.'}
+- Do not omit important points. Every key argument, event, or instruction in the source chunk must appear in the dialogue.
+- Preserve the full logical flow: cause -> development -> conclusion (if present).
+- Do not over-summarise; completeness is more important than brevity.
+- Each turn must be a complete sentence or paragraph; do not split one idea into many consecutive lines by the same speaker.
+- Adapt naturally — do NOT copy source sentences verbatim.
 `;
 
       let lines: DialogueLine[] = [];
@@ -275,20 +290,20 @@ Ràng buộc:
 
       // Pass mở rộng có kiểm soát nếu chunk vẫn bị co quá mức.
       if (dialogueCharCount(lines) < minChunkChars) {
-        const expandPrompt = `
-Nguồn gốc:
+        const expandPrompt = `Source content:
 """${chunk}"""
 
-Bản chuyển thể hiện tại:
+Current adaptation:
 """${renderDialogueDraft(lines)}"""
 
-Hãy viết lại bản hội thoại đầy đủ ý hơn:
-- Giữ nguyên nhân vật và phong cách.
-- Không bỏ chi tiết quan trọng từ nguồn.
-- Không tóm tắt quá ngắn.
-- Mỗi lượt thoại cần liền mạch, không chia vụn một câu thành nhiều dòng cùng speaker.
-- Không bê nguyên văn nguồn; diễn đạt lại theo lối hội thoại tự nhiên.
-- Tổng độ dài phần text hội thoại tối thiểu khoảng ${minChunkChars} ký tự.
+Rewrite the dialogue to be more complete:
+- Output language: ${detectedLanguage}. Every word MUST be in ${detectedLanguage}.
+- Keep the same characters and style.
+- Do not omit important details from the source.
+- Do not over-summarise.
+- Each turn must be coherent; do not split one sentence into multiple lines by the same speaker.
+- Do not copy source text verbatim; rephrase naturally as dialogue.
+- Minimum total dialogue text length: approximately ${minChunkChars} characters.
 `;
         try {
           const expanded =
