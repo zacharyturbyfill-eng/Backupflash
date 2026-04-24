@@ -17,6 +17,14 @@ type DialogueLine = {
   roleType: 'Host' | 'Doctor' | 'Guest';
 };
 
+type LocalizedPrompts = {
+  systemInstruction: string;
+  chunkOpenPrompt: string;
+  chunkMidPrompt: string;
+  chunkClosePrompt: string;
+  expandPrompt: string;
+};
+
 const supabaseAdmin = createSupabaseAdminClient();
 
 const chunkText = (text: string, maxLength: number = 2500): string[] => {
@@ -52,7 +60,7 @@ function mergeFragmentedLines(lines: DialogueLine[]): DialogueLine[] {
     const prev = merged[merged.length - 1];
     const prevText = String(prev.text || '').trim();
     const curText = String(line.text || '').trim();
-    const prevLooksComplete = /[.!?…:;”"')\]]$/.test(prevText);
+    const prevLooksComplete = /[.!?…:;"\"')\]]$/.test(prevText);
     const shouldMerge =
       prev.speaker === line.speaker &&
       (!prevLooksComplete || prevText.length < 55 || curText.length < 35);
@@ -199,14 +207,9 @@ export async function POST(req: NextRequest) {
     }
 
     const chunks = chunkText(inputText, 2500);
-
-    // ── Bước 1: Detect ngôn ngữ + sinh prompt TRỰC TIẾP bằng ngôn ngữ đó ──
-    // Gộp detect + sinh systemInstruction / chunkPromptTemplate / expandPromptTemplate
-    // vào 1 lần gọi AI duy nhất. Kết quả: AI tư duy và viết trong 1 ngôn ngữ,
-    // không qua trung gian tiếng Anh → giữ trọn vẹn sắc thái và từ vựng bản địa.
     const isMonologue = activeRoles.length === 1;
     const firstRole = activeRoles[0];
-    const roleNames = activeRoles.map((r) => r.name).join(', ');
+
     const roleGuideRaw = activeRoles
       .map((r) => {
         const label = r.roleType === 'Host' ? 'Host' : r.roleType === 'Doctor' ? 'Doctor' : 'Guest';
@@ -214,47 +217,44 @@ export async function POST(req: NextRequest) {
       })
       .join(', ');
 
-    type LocalizedPrompts = {
-      systemInstruction: string;
-      chunkOpenPrompt: string;   // template dùng cho chunk đầu
-      chunkMidPrompt: string;    // template dùng cho chunk giữa
-      chunkClosePrompt: string;  // template dùng cho chunk cuối
-      expandPrompt: string;      // template expand (placeholder {{DRAFT}} & {{MIN_CHARS}})
-    };
-
+    // ── Detect ngôn ngữ + sinh tất cả prompt TRỰC TIẾP bằng ngôn ngữ đó (1 call) ──
+    // AI nhận instruction bằng ngôn ngữ gốc → tư duy và viết trong 1 ngôn ngữ duy nhất
+    // → giữ trọn vẹn sắc thái, từ vựng bản địa, không qua trung gian tiếng Anh.
     let localizedPrompts: LocalizedPrompts | null = null;
 
-    const localizeMetaPrompt = isMonologue
-      ? `You are a multilingual prompt engineer.
-Step 1 – Identify the language of the text below (sample).
-Step 2 – In THAT SAME LANGUAGE, write 5 fields as JSON (no markdown, no extra keys):
-{
-  "systemInstruction": "<system instruction for a podcast AI telling it to act as a professional podcast editor, convert source into natural monologue spoken by ${firstRole.name}, never say 'according to the text'/'as mentioned', treat content as the speaker's own knowledge, greet audience only once at very start>",
-  "chunkOpenPrompt": "<user prompt template for the OPENING chunk: introduce the content source placeholder [[SOURCE]] and instruct to open naturally with a brief greeting, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "chunkMidPrompt": "<user prompt template for a MIDDLE chunk: content source placeholder [[SOURCE]], no re-greeting, end open to connect to next segment, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "chunkClosePrompt": "<user prompt template for the CLOSING chunk: content source placeholder [[SOURCE]], no re-greeting, end with a warm closing/summary, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "expandPrompt": "<user prompt template to rewrite a dialogue that was too short: original source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum character count placeholder [[MIN_CHARS]] — instruct to keep same speaker and style, not omit details, not over-summarise, not copy verbatim, each turn coherent>"
-}
-All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.
-Text sample: """${inputText.slice(0, 400)}"""`
-      : `You are a multilingual prompt engineer.
-Step 1 – Identify the language of the text below (sample).
-Step 2 – In THAT SAME LANGUAGE, write 5 fields as JSON (no markdown, no extra keys):
-{
-  "systemInstruction": "<system instruction for a podcast AI telling it to act as a professional podcast scriptwriter, convert source into natural multi-character dialogue, characters: ${roleGuideRaw}, never say 'according to the text'/'as mentioned', retell so listeners don't need the source, greet audience only once at very start, gender is context only not rigid speech — include all original character-specific speaking style rules>",
-  "chunkOpenPrompt": "<user prompt template for the OPENING chunk: content source placeholder [[SOURCE]], open naturally with brief greeting, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "chunkMidPrompt": "<user prompt template for a MIDDLE chunk: content source placeholder [[SOURCE]], no re-greeting, end open to connect to next segment, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "chunkClosePrompt": "<user prompt template for the CLOSING chunk: content source placeholder [[SOURCE]], no re-greeting, end with a warm closing/summary, cover all key points completely, each turn a full coherent sentence/paragraph, adapt naturally not verbatim>",
-  "expandPrompt": "<user prompt template to rewrite a dialogue that was too short: original source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum character count placeholder [[MIN_CHARS]] — instruct to keep same characters and style, not omit details, not over-summarise, not copy verbatim, each turn coherent>"
-}
-All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.
-Text sample: """${inputText.slice(0, 400)}"""``;
+    const monologueMetaPrompt =
+      'You are a multilingual prompt engineer.\n' +
+      'Step 1 - Identify the language of the sample text below.\n' +
+      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys):\n' +
+      '{\n' +
+      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast editor, convert source into natural monologue spoken by ' + firstRole.name + ', never reference the source text directly, treat content as the speaker own knowledge, greet audience only once at very start>",\n' +
+      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with brief greeting, cover all key points completely, each turn a full coherent sentence or paragraph, adapt naturally not verbatim>",\n' +
+      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], no re-greeting, end open to connect next segment, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
+      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], no re-greeting, end with warm closing or summary, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
+      '  "expandPrompt": "<user prompt to expand a too-short dialogue: source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum chars placeholder [[MIN_CHARS]], keep same speaker and style, no omissions, not verbatim, each turn coherent>"\n' +
+      '}\n' +
+      'All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.\n' +
+      'Sample text: """' + inputText.slice(0, 400) + '"""';
+
+    const dialogueMetaPrompt =
+      'You are a multilingual prompt engineer.\n' +
+      'Step 1 - Identify the language of the sample text below.\n' +
+      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys):\n' +
+      '{\n' +
+      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast scriptwriter, convert source into natural multi-character dialogue, characters: ' + roleGuideRaw + ', never reference the source text directly, retell so listeners do not need the source, greet audience only once at very start, gender is context only not rigid speech, include all character-specific speaking style rules>",\n' +
+      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with brief greeting, cover all key points completely, each turn a full coherent sentence or paragraph, adapt naturally not verbatim>",\n' +
+      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], no re-greeting, end open to connect next segment, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
+      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], no re-greeting, end with warm closing or summary, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
+      '  "expandPrompt": "<user prompt to expand a too-short dialogue: source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum chars placeholder [[MIN_CHARS]], keep same characters and style, no omissions, not verbatim, each turn coherent>"\n' +
+      '}\n' +
+      'All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.\n' +
+      'Sample text: """' + inputText.slice(0, 400) + '"""';
 
     try {
       const metaAi = new GoogleGenAI({ apiKey: key.trim() });
       const metaRes = await metaAi.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: localizeMetaPrompt,
+        contents: isMonologue ? monologueMetaPrompt : dialogueMetaPrompt,
         config: { responseMimeType: 'application/json' },
       });
       const parsed = JSON.parse(metaRes.text || '{}');
@@ -265,7 +265,7 @@ Text sample: """${inputText.slice(0, 400)}"""``;
       // fallback bên dưới sẽ xử lý
     }
 
-    // ── Fallback: nếu localize thất bại dùng lại prompt tiếng Việt gốc ──
+    // ── Fallback: nếu localize thất bại, dùng prompt tiếng Việt gốc ──
     const roleGuide = activeRoles
       .map((r) => {
         const roleLabel = r.roleType === 'Host' ? 'MC' : r.roleType === 'Doctor' ? 'Bác sĩ' : 'Khách mời';
@@ -273,28 +273,11 @@ Text sample: """${inputText.slice(0, 400)}"""``;
       })
       .join('\n');
 
-    const systemInstruction = localizedPrompts?.systemInstruction ??
+    const systemInstruction =
+      localizedPrompts?.systemInstruction ??
       (isMonologue
-        ? `Bạn là biên tập viên podcast chuyên nghiệp. Viết thành độc thoại tự nhiên.
-Vai chính: ${firstRole.name}.
-Yêu cầu:
-1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".
-2. Xem nội dung là kiến thức/câu chuyện của chính người nói.
-3. Giữ đúng ngôn ngữ của đầu vào.
-4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.
-`
-        : `Bạn là biên kịch podcast chuyên nghiệp. Viết thành hội thoại tự nhiên nhiều nhân vật.
-Danh sách nhân vật:
-${roleGuide}
-Yêu cầu:
-1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".
-2. Tự kể lại sao cho người nghe không cần xem văn bản gốc.
-3. Giữ đúng ngôn ngữ của đầu vào.
-4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.
-5. Giới tính chỉ để hiểu ngữ cảnh nhân vật, không ép buộc mẫu xưng hô cứng.
-6. MC luôn xưng tên và mở câu với "thưa bác sĩ" khi trao đổi chuyên môn.
-7. Bác sĩ luôn gọi tên MC và xưng "tôi", không đổi ngôi thất thường.
-`);
+        ? `Bạn là biên tập viên podcast chuyên nghiệp. Viết thành độc thoại tự nhiên.\nVai chính: ${firstRole.name}.\nYêu cầu:\n1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".\n2. Xem nội dung là kiến thức/câu chuyện của chính người nói.\n3. Giữ đúng ngôn ngữ của đầu vào.\n4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.\n`
+        : `Bạn là biên kịch podcast chuyên nghiệp. Viết thành hội thoại tự nhiên nhiều nhân vật.\nDanh sách nhân vật:\n${roleGuide}\nYêu cầu:\n1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".\n2. Tự kể lại sao cho người nghe không cần xem văn bản gốc.\n3. Giữ đúng ngôn ngữ của đầu vào.\n4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.\n5. Giới tính chỉ để hiểu ngữ cảnh nhân vật, không ép buộc mẫu xưng hô cứng.\n6. MC luôn xưng tên và mở câu với "thưa bác sĩ" khi trao đổi chuyên môn.\n7. Bác sĩ luôn gọi tên MC và xưng "tôi", không đổi ngôi thất thường.\n`);
 
     const buildChunkPrompt = (chunk: string, isFirst: boolean, isLast: boolean): string => {
       if (localizedPrompts) {
@@ -306,18 +289,16 @@ Yêu cầu:
         return template.replace('[[SOURCE]]', chunk);
       }
       // fallback tiếng Việt
-      return `Nội dung nguồn:
-"""${chunk}"""
-
-Ràng buộc:
-- ${isFirst ? 'Bắt đầu tự nhiên (chào mở đầu ngắn gọn).' : 'Không được chào lại hoặc giới thiệu lại chương trình.'}
-- ${isLast ? 'Kết thúc bằng một đoạn tổng kết ngắn.' : 'Kết thúc mở để nối mạch sang phần tiếp theo.'}
-- Không được lược bỏ ý quan trọng. Mỗi luận điểm/diễn biến/chỉ dẫn chính trong chunk nguồn phải được thể hiện lại.
-- Giữ trọn vẹn mạch logic: nguyên nhân -> diễn biến -> kết luận (nếu có).
-- Không tóm tắt quá ngắn; ưu tiên đầy đủ ý.
-- Mỗi lượt thoại phải là câu/đoạn hoàn chỉnh.
-- Chuyển thể tự nhiên, KHÔNG bê nguyên văn từng câu từ nguồn gốc.
-`;
+      return (
+        `Nội dung nguồn:\n"""${chunk}"""\n\nRàng buộc:\n` +
+        `- ${isFirst ? 'Bắt đầu tự nhiên (chào mở đầu ngắn gọn).' : 'Không được chào lại hoặc giới thiệu lại chương trình.'}\n` +
+        `- ${isLast ? 'Kết thúc bằng một đoạn tổng kết ngắn.' : 'Kết thúc mở để nối mạch sang phần tiếp theo.'}\n` +
+        `- Không được lược bỏ ý quan trọng. Mỗi luận điểm/diễn biến/chỉ dẫn chính trong chunk nguồn phải được thể hiện lại.\n` +
+        `- Giữ trọn vẹn mạch logic: nguyên nhân -> diễn biến -> kết luận (nếu có).\n` +
+        `- Không tóm tắt quá ngắn; ưu tiên đầy đủ ý.\n` +
+        `- Mỗi lượt thoại phải là câu/đoạn hoàn chỉnh.\n` +
+        `- Chuyển thể tự nhiên, KHÔNG bê nguyên văn từng câu từ nguồn gốc.\n`
+      );
     };
 
     const finalLines: DialogueLine[] = [];
@@ -357,20 +338,16 @@ Ràng buộc:
               .replace('[[SOURCE]]', chunk)
               .replace('[[DRAFT]]', renderDialogueDraft(lines))
               .replace('[[MIN_CHARS]]', String(minChunkChars))
-          : `Nguồn gốc:
-"""${chunk}"""
-
-Bản chuyển thể hiện tại:
-"""${renderDialogueDraft(lines)}"""
-
-Hãy viết lại bản hội thoại đầy đủ ý hơn:
-- Giữ nguyên nhân vật và phong cách.
-- Không bỏ chi tiết quan trọng từ nguồn.
-- Không tóm tắt quá ngắn.
-- Mỗi lượt thoại cần liền mạch.
-- Không bê nguyên văn nguồn; diễn đạt lai theo lối hội thoại tự nhiên.
-- Tổng độ dài tối thiểu khoảng ${minChunkChars} ký tự.
-`;
+          : (
+              `Nguồn gốc:\n"""${chunk}"""\n\nBản chuyển thể hiện tại:\n"""${renderDialogueDraft(lines)}"""\n\n` +
+              `Hãy viết lại bản hội thoại đầy đủ ý hơn:\n` +
+              `- Giữ nguyên nhân vật và phong cách.\n` +
+              `- Không bỏ chi tiết quan trọng từ nguồn.\n` +
+              `- Không tóm tắt quá ngắn.\n` +
+              `- Mỗi lượt thoại cần liền mạch.\n` +
+              `- Không bê nguyên văn nguồn; diễn đạt lại theo lối hội thoại tự nhiên.\n` +
+              `- Tổng độ dài tối thiểu khoảng ${minChunkChars} ký tự.\n`
+            );
         try {
           const expanded =
             provider === 'openai'
