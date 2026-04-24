@@ -17,6 +17,7 @@ import {
   Check,
   Clock,
   X,
+  User,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import SystemAnnouncementBanner from "@/components/SystemAnnouncementBanner";
@@ -240,6 +241,10 @@ export default function PodcastPage() {
           <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Video className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/storyboard')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <User className="w-5 h-5 flex-shrink-0 text-violet-400" />
+            <span className="ml-3 font-medium hidden md:block">Character Prompt</span>
           </button>
           {user?.role === "admin" && (
             <button onClick={() => router.push("/admin")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all">

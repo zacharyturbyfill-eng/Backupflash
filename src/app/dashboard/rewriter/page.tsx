@@ -169,6 +169,10 @@ export default function RewriterPage() {
             <Video className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span>
           </button>
+          <button onClick={() => router.push("/dashboard/storyboard")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-violet-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Character Prompt</span>
+          </button>
 
           {user?.role === "admin" && (
             <button onClick={() => router.push("/admin")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all group">
