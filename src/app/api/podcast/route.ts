@@ -114,11 +114,12 @@ function cleanDialogueLines(lines: any[]): DialogueLine[] {
 async function generateWithGemini(
   key: string,
   prompt: string,
-  systemInstruction: string
+  systemInstruction: string,
+  model: string = 'gemini-2.5-flash'
 ): Promise<DialogueLine[]> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model,
     contents: prompt,
     config: {
       systemInstruction,
@@ -174,6 +175,10 @@ export async function POST(req: NextRequest) {
     const title = String(body?.title || '').trim().slice(0, 180);
     const userId = String(body?.userId || '');
     const provider: 'gemini' | 'openai' = body?.provider === 'openai' ? 'openai' : 'gemini';
+    const geminiModel: string =
+      body?.geminiModel === 'gemini-2.5-flash-lite-preview-06-17'
+        ? 'gemini-2.5-flash-lite-preview-06-17'
+        : 'gemini-2.5-flash';
     const roles = Array.isArray(body?.roles) ? (body.roles as PodcastRole[]) : [];
 
     if (!inputText || !userId) {
@@ -264,7 +269,7 @@ export async function POST(req: NextRequest) {
     try {
       const metaAi = new GoogleGenAI({ apiKey: key.trim() });
       const metaRes = await metaAi.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: geminiModel,
         contents: isMonologue ? monologueMetaPrompt : dialogueMetaPrompt,
         config: { responseMimeType: 'application/json' },
       });
@@ -329,7 +334,7 @@ export async function POST(req: NextRequest) {
           lines =
             provider === 'openai'
               ? await generateWithOpenAI(key, prompt, systemInstruction)
-              : await generateWithGemini(key, prompt, systemInstruction);
+              : await generateWithGemini(key, prompt, systemInstruction, geminiModel);
           if (lines.length > 0 && dialogueCharCount(lines) >= minChunkChars) break;
           if (lines.length > 0 && attempt < 4) {
             // Có output nhưng còn ngắn: thử lại để phủ đủ ý hơn.
@@ -365,7 +370,7 @@ export async function POST(req: NextRequest) {
           const expanded =
             provider === 'openai'
               ? await generateWithOpenAI(key, expandPrompt, systemInstruction)
-              : await generateWithGemini(key, expandPrompt, systemInstruction);
+              : await generateWithGemini(key, expandPrompt, systemInstruction, geminiModel);
           if (dialogueCharCount(expanded) > dialogueCharCount(lines)) {
             lines = expanded;
           }
@@ -400,7 +405,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('usage_logs').insert({
       user_id: userId,
       user_email: profile.email,
-      tool_name: title ? `Tạo kịch bản Podcast (${provider}) | ${title}` : `Tạo kịch bản Podcast (${provider})`,
+      tool_name: title ? `Tạo kịch bản Podcast (${provider}${provider === 'gemini' ? `/${geminiModel}` : ''}) | ${title}` : `Tạo kịch bản Podcast (${provider}${provider === 'gemini' ? `/${geminiModel}` : ''})`,
       char_count: inputText.length,
     });
 
@@ -417,7 +422,7 @@ export async function POST(req: NextRequest) {
       history: historyRow,
       results: finalLines,
       provider,
-      model: provider === 'openai' ? 'gpt-4.1-mini' : 'gemini-2.5-flash',
+      model: provider === 'openai' ? 'gpt-4.1-mini' : geminiModel,
       title,
     });
   } catch (error: any) {

@@ -41,6 +41,7 @@ export default function PodcastPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
+  const [geminiModel, setGeminiModel] = useState<"gemini-2.5-flash" | "gemini-2.5-flash-lite-preview-06-17">("gemini-2.5-flash");
   const [inputText, setInputText] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [lines, setLines] = useState<DialogueLine[]>([]);
@@ -164,6 +165,7 @@ export default function PodcastPage() {
           text: inputText,
           title: projectTitle,
           provider,
+          geminiModel,
           roles,
         }),
       });
@@ -272,7 +274,11 @@ export default function PodcastPage() {
               <span className="text-gradient">Podcast Studio</span>
             </h2>
             <p className="text-slate-500 text-[11px] uppercase tracking-widest font-black">
-              Model cố định: Gemini Flash / GPT-4.1 mini
+              {provider === "gemini"
+                ? geminiModel === "gemini-2.5-flash"
+                  ? "Gemini 2.5 Flash"
+                  : "Gemini 2.5 Flash Lite"
+                : "GPT-4.1 mini"}
             </p>
             <div className="mt-3">
               <input
@@ -293,13 +299,41 @@ export default function PodcastPage() {
             >
               <Clock size={14} /> Lịch Sử Podcast
             </button>
-            <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
-              <button onClick={() => setProvider("gemini")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "gemini" ? "btn-ombre text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
-                <Cpu size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Gemini Flash</span>
-              </button>
-              <button onClick={() => setProvider("openai")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "openai" ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
-                <Zap size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">GPT-4.1 mini</span>
-              </button>
+            <div className="flex items-center gap-2">
+              {/* Provider toggle */}
+              <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                <button onClick={() => setProvider("gemini")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "gemini" ? "btn-ombre text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
+                  <Cpu size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
+                </button>
+                <button onClick={() => setProvider("openai")} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === "openai" ? "bg-emerald-600 text-white shadow-lg" : "text-slate-500 hover:bg-white/5"}`}>
+                  <Zap size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">GPT-4.1 mini</span>
+                </button>
+              </div>
+              {/* Gemini model selector – only visible when Gemini is active */}
+              {provider === "gemini" && (
+                <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
+                  <button
+                    onClick={() => setGeminiModel("gemini-2.5-flash")}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${
+                      geminiModel === "gemini-2.5-flash"
+                        ? "bg-indigo-600 text-white shadow-lg"
+                        : "text-slate-500 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-widest">Flash</span>
+                  </button>
+                  <button
+                    onClick={() => setGeminiModel("gemini-2.5-flash-lite-preview-06-17")}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all ${
+                      geminiModel === "gemini-2.5-flash-lite-preview-06-17"
+                        ? "bg-violet-600 text-white shadow-lg"
+                        : "text-slate-500 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-widest">Flash Lite</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -462,7 +496,7 @@ export default function PodcastPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] uppercase tracking-widest font-black text-indigo-400">
-                        {h.provider === "openai" ? "GPT-4.1 mini" : "Gemini Flash"}
+                        {h.provider === "openai" ? "GPT-4.1 mini" : h.model === "gemini-2.5-flash-lite-preview-06-17" ? "Gemini Flash Lite" : "Gemini Flash"}
                       </span>
                       <span className="text-[10px] text-slate-500">{new Date(h.created_at).toLocaleString()}</span>
                     </div>
