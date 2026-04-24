@@ -111,6 +111,85 @@ function cleanDialogueLines(lines: any[]): DialogueLine[] {
   return mergeFragmentedLines(cleaned);
 }
 
+function classifyApiError(e: any, provider: 'gemini' | 'openai'): string {
+  const msg: string = (e?.message || e?.toString() || '').toLowerCase();
+  const status: number = e?.status || e?.statusCode || e?.response?.status || 0;
+  const errType: string = (e?.error?.type || e?.type || '').toLowerCase();
+  const errCode: string = (e?.error?.code || e?.code || '').toLowerCase();
+
+  // ── GEMINI errors ──────────────────────────────────────────────────────────
+  if (provider === 'gemini') {
+    // 429 RESOURCE_EXHAUSTED — quota / rate limit
+    if (status === 429 || msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('rate limit')) {
+      return '⚠️ Gemini API: Đã hết quota hoặc vượt rate limit (429 RESOURCE_EXHAUSTED). Vui lòng kiểm tra Google AI Studio → Billing/Quota hoặc thay API key khác.';
+    }
+    // 403 PERMISSION_DENIED — bad key or no access
+    if (status === 403 || msg.includes('permission_denied') || msg.includes('api key')) {
+      return '🔑 Gemini API: API key không hợp lệ hoặc không có quyền truy cập model này (403 PERMISSION_DENIED). Vui lòng kiểm tra và thay API key.';
+    }
+    // 401 UNAUTHENTICATED
+    if (status === 401 || msg.includes('unauthenticated') || msg.includes('unauthorized')) {
+      return '🔑 Gemini API: Xác thực thất bại (401). API key có thể đã hết hạn hoặc bị thu hồi.';
+    }
+    // 404 NOT_FOUND — model không tồn tại
+    if (status === 404 || msg.includes('not_found') || msg.includes('not found')) {
+      return '❌ Gemini API: Model không tìm thấy (404 NOT_FOUND). Model ID có thể không còn hỗ trợ.';
+    }
+    // 400 INVALID_ARGUMENT
+    if (status === 400 || msg.includes('invalid_argument') || msg.includes('invalid argument')) {
+      return '❌ Gemini API: Yêu cầu không hợp lệ (400 INVALID_ARGUMENT). Vui lòng kiểm tra nội dung input.';
+    }
+    // 503 UNAVAILABLE
+    if (status === 503 || msg.includes('unavailable') || msg.includes('overloaded')) {
+      return '🔄 Gemini API: Dịch vụ đang quá tải hoặc tạm thời không khả dụng (503). Vui lòng thử lại sau ít phút.';
+    }
+    // 504 DEADLINE_EXCEEDED
+    if (status === 504 || msg.includes('deadline_exceeded') || msg.includes('timeout')) {
+      return '⏱️ Gemini API: Request quá lâu, bị timeout (504 DEADLINE_EXCEEDED). Thử rút ngắn nội dung input.';
+    }
+    // 500 INTERNAL
+    if (status === 500 || msg.includes('internal')) {
+      return '🔴 Gemini API: Lỗi nội bộ server (500 INTERNAL). Thường tạm thời — thử lại sau.';
+    }
+    return `❌ Gemini API lỗi: ${e?.message || 'Unknown error'}`;
+  }
+
+  // ── OPENAI errors ──────────────────────────────────────────────────────────
+  if (provider === 'openai') {
+    // insufficient_quota — hết tiền / credit
+    if (errType === 'insufficient_quota' || errCode === 'insufficient_quota' || msg.includes('insufficient_quota') || msg.includes('exceeded your current quota')) {
+      return '💳 OpenAI API: Tài khoản đã hết credit/quota (insufficient_quota). Vui lòng nạp thêm tín dụng tại platform.openai.com/billing.';
+    }
+    // rate_limit_error — gửi quá nhanh
+    if (errType === 'rate_limit_error' || errCode === 'rate_limit_exceeded' || status === 429 || msg.includes('rate limit')) {
+      return '⚠️ OpenAI API: Vượt rate limit (429). Đang gửi quá nhiều request — hãy thử lại sau vài giây.';
+    }
+    // authentication_error — API key sai
+    if (errType === 'authentication_error' || status === 401 || msg.includes('invalid api key') || msg.includes('authentication')) {
+      return '🔑 OpenAI API: API key không hợp lệ hoặc đã hết hạn (401 authentication_error). Vui lòng kiểm tra và thay API key.';
+    }
+    // permission_error
+    if (errType === 'permission_error' || status === 403 || msg.includes('permission')) {
+      return '🔑 OpenAI API: API key không có quyền truy cập model này (403 permission_error).';
+    }
+    // not_found_error — model không tồn tại
+    if (errType === 'not_found_error' || status === 404 || msg.includes('not found') || msg.includes('no such model')) {
+      return '❌ OpenAI API: Model không tìm thấy (404). Model ID có thể không tồn tại hoặc bạn chưa được truy cập.';
+    }
+    // invalid_request_error
+    if (errType === 'invalid_request_error' || status === 400) {
+      return '❌ OpenAI API: Yêu cầu không hợp lệ (400 invalid_request_error). Kiểm tra nội dung input.';
+    }
+    // server_error
+    if (errType === 'server_error' || status === 500) {
+      return '🔴 OpenAI API: Lỗi server phía OpenAI (500). Thường tạm thời — thử lại sau.';
+    }
+    return `❌ OpenAI API lỗi: ${e?.message || 'Unknown error'}`;
+  }
+
+  return `❌ Lỗi API không xác định: ${e?.message || 'Unknown error'}`;
+}
+
 async function generateWithGemini(
   key: string,
   prompt: string,
@@ -341,12 +420,15 @@ export async function POST(req: NextRequest) {
             await wait(900 * attempt);
           }
         } catch (e: any) {
-          lastError = e?.message || 'AI generation failed';
+          lastError = classifyApiError(e, provider);
           if (attempt < 4) await wait(1200 * attempt);
         }
       }
       if (lines.length === 0) {
-        return NextResponse.json({ error: `Không tạo được kịch bản ở phần ${i + 1}. ${lastError}` }, { status: 500 });
+        return NextResponse.json(
+          { error: lastError || `Không tạo được kịch bản ở phần ${i + 1}.` },
+          { status: 500 }
+        );
       }
 
       // Pass mở rộng có kiểm soát nếu chunk vẫn bị co quá mức.
