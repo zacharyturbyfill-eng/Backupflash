@@ -222,16 +222,26 @@ export async function POST(req: NextRequest) {
     // → giữ trọn vẹn sắc thái, từ vựng bản địa, không qua trung gian tiếng Anh.
     let localizedPrompts: LocalizedPrompts | null = null;
 
+    const completenessRules =
+      'IMPORTANT rules that must appear in EVERY chunk prompt you write: ' +
+      '(1) Do NOT omit any key point, argument, event, or instruction from the source - every important detail MUST be represented in the dialogue. ' +
+      '(2) Do NOT over-summarise or shorten - completeness is more important than brevity. ' +
+      '(3) The total character length of the dialogue text must be at least [[MIN_CHARS]] characters - include [[MIN_CHARS]] literally as a placeholder the caller will fill. ' +
+      '(4) Preserve the full logical flow: cause -> development -> conclusion. ' +
+      '(5) Each speaking turn must be a complete sentence or paragraph - do not split one idea into many short consecutive lines by the same speaker. ' +
+      '(6) Adapt naturally - do NOT copy source sentences verbatim, but do NOT remove content.';
+
     const monologueMetaPrompt =
       'You are a multilingual prompt engineer.\n' +
       'Step 1 - Identify the language of the sample text below.\n' +
-      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys):\n' +
+      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys).\n' +
+      completenessRules + '\n' +
       '{\n' +
-      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast editor, convert source into natural monologue spoken by ' + firstRole.name + ', never reference the source text directly, treat content as the speaker own knowledge, greet audience only once at very start>",\n' +
-      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with brief greeting, cover all key points completely, each turn a full coherent sentence or paragraph, adapt naturally not verbatim>",\n' +
-      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], no re-greeting, end open to connect next segment, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
-      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], no re-greeting, end with warm closing or summary, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
-      '  "expandPrompt": "<user prompt to expand a too-short dialogue: source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum chars placeholder [[MIN_CHARS]], keep same speaker and style, no omissions, not verbatim, each turn coherent>"\n' +
+      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast editor, convert source into natural monologue spoken by ' + firstRole.name + ', never say according-to-the-text or as-mentioned, treat content as the speaker own knowledge and story, greet audience only once at very start, do not repeat greeting in later segments>",\n' +
+      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with a brief greeting, then cover ALL key points from source completely without omission, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], do NOT re-greet or re-introduce, end open to connect to next segment, cover ALL key points completely without omission, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], do NOT re-greet, cover ALL key points completely without omission, end with a warm closing or summary, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "expandPrompt": "<user prompt to rewrite a too-short dialogue: original source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum character count placeholder [[MIN_CHARS]], keep same speaker and style, do not omit any detail from source, do not over-summarise, do not copy verbatim, each turn must be coherent and complete>"\n' +
       '}\n' +
       'All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.\n' +
       'Sample text: """' + inputText.slice(0, 400) + '"""';
@@ -239,13 +249,14 @@ export async function POST(req: NextRequest) {
     const dialogueMetaPrompt =
       'You are a multilingual prompt engineer.\n' +
       'Step 1 - Identify the language of the sample text below.\n' +
-      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys):\n' +
+      'Step 2 - In THAT SAME LANGUAGE, produce exactly 5 JSON fields (no markdown, no extra keys).\n' +
+      completenessRules + '\n' +
       '{\n' +
-      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast scriptwriter, convert source into natural multi-character dialogue, characters: ' + roleGuideRaw + ', never reference the source text directly, retell so listeners do not need the source, greet audience only once at very start, gender is context only not rigid speech, include all character-specific speaking style rules>",\n' +
-      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with brief greeting, cover all key points completely, each turn a full coherent sentence or paragraph, adapt naturally not verbatim>",\n' +
-      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], no re-greeting, end open to connect next segment, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
-      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], no re-greeting, end with warm closing or summary, cover all key points, each turn complete, adapt naturally not verbatim>",\n' +
-      '  "expandPrompt": "<user prompt to expand a too-short dialogue: source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum chars placeholder [[MIN_CHARS]], keep same characters and style, no omissions, not verbatim, each turn coherent>"\n' +
+      '  "systemInstruction": "<system instruction for a podcast AI: act as professional podcast scriptwriter, convert source into natural multi-character dialogue, characters: ' + roleGuideRaw + ', never say according-to-the-text or as-mentioned, retell so listeners do not need the source, greet audience only once at very start, gender is context only not rigid speech, character-specific speaking style: Host always addresses by name and speaks formally to Doctor on professional topics, Doctor always addresses Host by name and refers to self in first person consistently>",\n' +
+      '  "chunkOpenPrompt": "<user prompt for OPENING chunk: source placeholder [[SOURCE]], open naturally with a brief greeting, cover ALL key points from source completely without omission, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "chunkMidPrompt": "<user prompt for MIDDLE chunk: source placeholder [[SOURCE]], do NOT re-greet or re-introduce, end open to connect to next segment, cover ALL key points completely without omission, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "chunkClosePrompt": "<user prompt for CLOSING chunk: source placeholder [[SOURCE]], do NOT re-greet, cover ALL key points completely without omission, end with a warm closing or summary, minimum [[MIN_CHARS]] characters of dialogue text, each turn a full coherent sentence or paragraph, adapt naturally not verbatim, do not over-summarise>",\n' +
+      '  "expandPrompt": "<user prompt to rewrite a too-short dialogue: original source placeholder [[SOURCE]], current draft placeholder [[DRAFT]], minimum character count placeholder [[MIN_CHARS]], keep same characters and style, do not omit any detail from source, do not over-summarise, do not copy verbatim, each turn must be coherent and complete>"\n' +
       '}\n' +
       'All 5 values MUST be written entirely in the detected language. Do NOT use English inside the values.\n' +
       'Sample text: """' + inputText.slice(0, 400) + '"""';
@@ -279,14 +290,16 @@ export async function POST(req: NextRequest) {
         ? `Bạn là biên tập viên podcast chuyên nghiệp. Viết thành độc thoại tự nhiên.\nVai chính: ${firstRole.name}.\nYêu cầu:\n1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".\n2. Xem nội dung là kiến thức/câu chuyện của chính người nói.\n3. Giữ đúng ngôn ngữ của đầu vào.\n4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.\n`
         : `Bạn là biên kịch podcast chuyên nghiệp. Viết thành hội thoại tự nhiên nhiều nhân vật.\nDanh sách nhân vật:\n${roleGuide}\nYêu cầu:\n1. Không nói "theo văn bản", "đoạn trên", "nội dung đã cho".\n2. Tự kể lại sao cho người nghe không cần xem văn bản gốc.\n3. Giữ đúng ngôn ngữ của đầu vào.\n4. Chào mở đầu một lần duy nhất ở chunk đầu; không lặp lại ở các chunk sau.\n5. Giới tính chỉ để hiểu ngữ cảnh nhân vật, không ép buộc mẫu xưng hô cứng.\n6. MC luôn xưng tên và mở câu với "thưa bác sĩ" khi trao đổi chuyên môn.\n7. Bác sĩ luôn gọi tên MC và xưng "tôi", không đổi ngôi thất thường.\n`);
 
-    const buildChunkPrompt = (chunk: string, isFirst: boolean, isLast: boolean): string => {
+    const buildChunkPrompt = (chunk: string, isFirst: boolean, isLast: boolean, minChars: number): string => {
       if (localizedPrompts) {
         const template = isFirst
           ? localizedPrompts.chunkOpenPrompt
           : isLast
           ? localizedPrompts.chunkClosePrompt
           : localizedPrompts.chunkMidPrompt;
-        return template.replace('[[SOURCE]]', chunk);
+        return template
+          .replace('[[SOURCE]]', chunk)
+          .replace(/\[\[MIN_CHARS\]\]/g, String(minChars));
       }
       // fallback tiếng Việt
       return (
@@ -306,11 +319,11 @@ export async function POST(req: NextRequest) {
       const chunk = chunks[i];
       const isFirst = i === 0;
       const isLast = i === chunks.length - 1;
-      const prompt = buildChunkPrompt(chunk, isFirst, isLast);
+      const minChunkChars = Math.max(450, Math.floor(chunk.length * (isMonologue ? 0.82 : 0.72)));
+      const prompt = buildChunkPrompt(chunk, isFirst, isLast, minChunkChars);
 
       let lines: DialogueLine[] = [];
       let lastError = '';
-      const minChunkChars = Math.max(450, Math.floor(chunk.length * (isMonologue ? 0.82 : 0.72)));
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           lines =
