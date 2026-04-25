@@ -46,13 +46,14 @@ const buildPrompt = (
   chunkIndex: number,
   totalChunks: number
 ) => `
-Bạn là biên tập viên truyện tiếng Việt chuyên nghiệp.
+Bạn là biên tập viên truyện chuyên nghiệp.
 
 NHIỆM VỤ:
 - Viết lại CHUNK ${chunkIndex + 1}/${totalChunks} của truyện.
 - Giữ nguyên ý chính, giữ trình tự sự kiện, giữ đủ ý.
 - Không rút gọn, không tóm tắt.
 - Viết câu liền mạch, tự nhiên, không tủn mủn.
+- ĐẶC BIỆT QUAN TRỌNG: Phân tích ngôn ngữ của đoạn gốc và BẮT BUỘC viết lại bằng ĐÚNG NGÔN NGỮ ĐÓ (ví dụ đoạn gốc bằng tiếng Trung thì kết quả phải là tiếng Trung). Tuyệt đối không tự dịch sang ngôn ngữ khác.
 
 RÀNG BUỘC ĐỘ DÀI:
 - Đầu ra phải tương đương hoặc dài hơn nhẹ so với đoạn gốc.
@@ -91,7 +92,7 @@ const rewriteWithOpenAI = async (apiKey: string, prompt: string) => {
     messages: [
       {
         role: "system",
-        content: "Bạn là biên tập viên truyện tiếng Việt. Viết lại mượt, giữ ý, không rút gọn.",
+        content: "Bạn là biên tập viên truyện chuyên nghiệp. Viết lại mượt, giữ ý, không rút gọn. BẮT BUỘC phân tích và trả về kết quả bằng đúng ngôn ngữ của văn bản đầu vào.",
       },
       {
         role: "user",
