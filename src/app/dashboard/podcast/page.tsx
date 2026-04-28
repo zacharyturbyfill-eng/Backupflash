@@ -42,7 +42,7 @@ export default function PodcastPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [provider, setProvider] = useState<"gemini" | "openai">("gemini");
-  const [geminiModel, setGeminiModel] = useState<"gemini-2.5-flash" | "gemini-2.5-flash-lite">("gemini-2.5-flash");
+  const [geminiModel, setGeminiModel] = useState<"gemini-2.5-flash" | "gemini-2.5-flash-lite">("gemini-2.5-flash-lite");
   const [inputText, setInputText] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [lines, setLines] = useState<DialogueLine[]>([]);
