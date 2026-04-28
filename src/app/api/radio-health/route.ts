@@ -65,15 +65,34 @@ async function generateWithGemini(
   contents: string,
   systemInstruction: string,
   model: string,
-  temperature: number = 0.7
+  temperature: number = 0.7,
+  retryCount = 0
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
-  const result = await ai.models.generateContent({
-    model,
-    contents,
-    config: { systemInstruction, temperature, maxOutputTokens: 8192 },
-  });
-  return result.text || "";
+  
+  // Trộn system instruction vào đầu nội dung nếu SDK gặp vấn đề với config
+  const fullPrompt = `${systemInstruction}\n\nNỘI DUNG CẦN XỬ LÝ:\n${contents}`;
+
+  try {
+    const result = await ai.models.generateContent({
+      model,
+      contents: fullPrompt,
+      config: { temperature, maxOutputTokens: 8192 },
+    });
+    return result.text || "";
+  } catch (error: any) {
+    const status = error?.status || error?.code || 0;
+    const msg = (error?.message || "").toLowerCase();
+    
+    // Nếu gặp lỗi 503 (Unavailable) hoặc 429 (Rate Limit), thực hiện retry
+    if ((status === 503 || status === 429 || msg.includes("overloaded") || msg.includes("demand")) && retryCount < 3) {
+      const delay = 2000 * (retryCount + 1);
+      console.log(`Gemini 503/429 error, retrying in ${delay}ms... (lần ${retryCount + 1})`);
+      await new Promise(r => setTimeout(r, delay));
+      return generateWithGemini(key, contents, systemInstruction, model, temperature, retryCount + 1);
+    }
+    throw error;
+  }
 }
 
 async function generateWithOpenAI(
@@ -98,7 +117,8 @@ async function generateScriptOutline(
   key: string,
   model: string,
   contextPrompt: string,
-  targetChars: number
+  targetChars: number,
+  retryCount = 0
 ): Promise<ScriptSection[]> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
   const estimatedParts = Math.max(3, Math.ceil(targetChars / 4500));
@@ -113,17 +133,24 @@ async function generateScriptOutline(
     Trả về JSON: [ { "title": "...", "keyPoints": "...", "estimatedChars": ${charsPerPart} } ]
   `;
 
+  const fullPrompt = `${systemPrompt}\n\nÝ TƯỞNG GỐC:\n${contextPrompt}`;
+
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: contextPrompt,
+      contents: fullPrompt,
       config: {
-        systemInstruction: systemPrompt,
         responseMimeType: "application/json",
       },
     });
     return JSON.parse(cleanJson(response.text || "[]"));
-  } catch {
+  } catch (error: any) {
+    const status = error?.status || error?.code || 0;
+    const msg = (error?.message || "").toLowerCase();
+    if ((status === 503 || status === 429 || msg.includes("demand")) && retryCount < 3) {
+      await new Promise(r => setTimeout(r, 2000));
+      return generateScriptOutline(key, model, contextPrompt, targetChars, retryCount + 1);
+    }
     return [
       {
         title: "Hội thoại chính",
