@@ -70,14 +70,17 @@ async function generateWithGemini(
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
   
-  // Trộn system instruction vào đầu nội dung nếu SDK gặp vấn đề với config
-  const fullPrompt = `${systemInstruction}\n\nNỘI DUNG CẦN XỬ LÝ:\n${contents}`;
+  // Trộn system instruction vào đầu nội dung
+  const fullPrompt = `${systemInstruction}\n\nNỘI DUNG CẦN XỪ LÝ:\n${contents}`;
 
   try {
     const result = await ai.models.generateContent({
       model,
-      contents: [{ parts: [{ text: fullPrompt }] }],
-      config: { temperature, maxOutputTokens: 8192 },
+      contents: fullPrompt,
+      config: {
+        temperature,
+        maxOutputTokens: 8192,
+      },
     });
     const text = result.text || "";
     if (!text) {
@@ -98,6 +101,7 @@ async function generateWithGemini(
     throw error;
   }
 }
+
 
 async function generateWithOpenAI(
   key: string,
@@ -142,10 +146,8 @@ async function generateScriptOutline(
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: [{ parts: [{ text: fullPrompt }] }],
-      config: {
-        responseMimeType: "application/json",
-      },
+      contents: fullPrompt,
+      config: { responseMimeType: "application/json" },
     });
     const text = response.text || "[]";
     return JSON.parse(cleanJson(text));

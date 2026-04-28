@@ -121,17 +121,59 @@ const logSecurityEvent = async (args: {
   });
 };
 
+function classifyCleanError(e: any, provider: 'gemini' | 'openai', chunkIndex?: number): string {
+  const msg: string = (e?.message || e?.toString() || '').toLowerCase();
+  const status: number = e?.status || e?.statusCode || e?.response?.status || 0;
+  const chunkInfo = chunkIndex !== undefined ? ` (chunk ${chunkIndex + 1})` : '';
+
+  if (provider === 'gemini') {
+    if (status === 429 || msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('rate limit'))
+      return `⚠️ Gemini: Hết quota hoặc vượt rate limit (429)${chunkInfo}. Thử lại sau ít phút hoặc đổi API key.`;
+    if (status === 403 || msg.includes('permission_denied') || msg.includes('api key'))
+      return `🔑 Gemini: API key không hợp lệ hoặc không có quyền (403)${chunkInfo}. Kiểm tra lại API key.`;
+    if (status === 401 || msg.includes('unauthenticated'))
+      return `🔑 Gemini: Xác thực thất bại (401)${chunkInfo}. API key có thể đã hết hạn.`;
+    if (status === 503 || msg.includes('unavailable') || msg.includes('overloaded'))
+      return `🔄 Gemini: Server đang quá tải (503)${chunkInfo}. Thử lại sau vài phút.`;
+    if (status === 504 || msg.includes('deadline_exceeded') || msg.includes('timeout'))
+      return `⏱️ Gemini: Request timeout (504)${chunkInfo}. Văn bản có thể quá dài, thử chia nhỏ hơn.`;
+    if (status === 500 || msg.includes('internal'))
+      return `🔴 Gemini: Lỗi nội bộ server (500)${chunkInfo}. Thường tạm thời, thử lại sau.`;
+    return `❌ Gemini lỗi${chunkInfo}: ${e?.message || 'Unknown error'}`;
+  }
+
+  if (provider === 'openai') {
+    if (msg.includes('insufficient_quota') || msg.includes('exceeded your current quota'))
+      return `💳 OpenAI: Tài khoản hết credit/quota${chunkInfo}. Nạp thêm tại platform.openai.com/billing.`;
+    if (status === 429 || msg.includes('rate limit'))
+      return `⚠️ OpenAI: Vượt rate limit (429)${chunkInfo}. Thử lại sau vài giây.`;
+    if (status === 401 || msg.includes('invalid api key') || msg.includes('authentication'))
+      return `🔑 OpenAI: API key không hợp lệ (401)${chunkInfo}. Kiểm tra lại API key.`;
+    if (status === 403 || msg.includes('permission'))
+      return `🔑 OpenAI: Không có quyền truy cập model (403)${chunkInfo}.`;
+    if (status === 500)
+      return `🔴 OpenAI: Lỗi server phía OpenAI (500)${chunkInfo}. Thử lại sau.`;
+    return `❌ OpenAI lỗi${chunkInfo}: ${e?.message || 'Unknown error'}`;
+  }
+
+  return `❌ Lỗi không xác định${chunkInfo}: ${e?.message || 'Unknown error'}`;
+}
+
 const cleanWithOpenAI = async (apiKey: string, text: string): Promise<string> => {
   const openai = new OpenAI({ apiKey: apiKey.trim() });
   const chunks = splitTextSmartly(text, CLEAN_CHUNK_SIZE);
   const outputs: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: buildCleanPrompt(chunks[i], i, chunks.length) }],
-    });
-    outputs.push((response.choices[0]?.message?.content || '').trim());
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: buildCleanPrompt(chunks[i], i, chunks.length) }],
+      });
+      outputs.push((response.choices[0]?.message?.content || '').trim());
+    } catch (e: any) {
+      throw new Error(classifyCleanError(e, 'openai', i));
+    }
   }
 
   return outputs.join('\n\n').trim();
@@ -143,11 +185,15 @@ const cleanWithGemini = async (apiKey: string, text: string, geminiModel: string
   const outputs: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    const response = await ai.models.generateContent({
-      model: geminiModel,
-      contents: buildCleanPrompt(chunks[i], i, chunks.length),
-    });
-    outputs.push((response.text || '').trim());
+    try {
+      const response = await ai.models.generateContent({
+        model: geminiModel,
+        contents: buildCleanPrompt(chunks[i], i, chunks.length),
+      });
+      outputs.push((response.text || '').trim());
+    } catch (e: any) {
+      throw new Error(classifyCleanError(e, 'gemini', i));
+    }
   }
 
   return outputs.join('\n\n').trim();
@@ -330,7 +376,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result: cleanedOutput, title });
 
   } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Lỗi hệ thống AI', details: error.message }, { status: 500 });
+    console.error('Clean API Error:', error);
+    // error.message đã được classifyCleanError() format sẵn nếu từ API chunk
+    const userMessage = error?.message || 'Lỗi hệ thống không xác định.';
+    return NextResponse.json({ error: userMessage }, { status: 500 });
   }
 }

@@ -139,7 +139,8 @@ export default function RadioHealthPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Lỗi tạo kịch bản.");
-      setResult(json.result || "");
+      if (!json.result) throw new Error("AI trả về kết quả rỗng. Vui lòng thử lại.");
+      setResult(json.result);
     } catch (e: any) {
       setErrorText(e?.message || "Lỗi hệ thống.");
     } finally {
