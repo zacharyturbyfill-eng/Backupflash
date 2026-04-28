@@ -255,9 +255,9 @@ export async function POST(req: NextRequest) {
     const userId = String(body?.userId || '');
     const provider: 'gemini' | 'openai' = body?.provider === 'openai' ? 'openai' : 'gemini';
     const geminiModel: string =
-      body?.geminiModel === 'gemini-2.5-flash-lite'
-        ? 'gemini-2.5-flash-lite'
-        : 'gemini-2.5-flash';
+      body?.geminiModel === 'gemini-2.5-flash'
+        ? 'gemini-2.5-flash'
+        : 'gemini-2.5-flash-lite';
     const roles = Array.isArray(body?.roles) ? (body.roles as PodcastRole[]) : [];
 
     if (!inputText || !userId) {

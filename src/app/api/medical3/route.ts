@@ -150,6 +150,7 @@ function normalizeSeoPackage(input: any, transcript: string): SeoPackage {
 async function generateSeoByProvider(
   provider: ModelProvider,
   apiKey: string,
+  geminiModel: string,
   transcript: string
 ): Promise<SeoPackage> {
   const prompt = `Bạn là chuyên gia SEO YouTube tiếng Việt.
@@ -175,7 +176,7 @@ ${transcript.slice(0, 120000)}`;
   if (provider === 'openai') {
     const client = new OpenAI({ apiKey: apiKey.trim() });
     const completion = await client.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     });
@@ -185,7 +186,7 @@ ${transcript.slice(0, 120000)}`;
 
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: geminiModel,
     contents: [{ parts: [{ text: prompt }] }],
     config: {
       responseMimeType: 'application/json',
@@ -209,6 +210,7 @@ ${transcript.slice(0, 120000)}`;
 async function translateSeoPackageByProvider(
   provider: ModelProvider,
   apiKey: string,
+  geminiModel: string,
   source: SeoPackage,
   targetLang: SeoLanguage
 ): Promise<SeoPackage> {
@@ -230,7 +232,7 @@ ${JSON.stringify(source)}`;
   if (provider === 'openai') {
     const client = new OpenAI({ apiKey: apiKey.trim() });
     const completion = await client.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     });
@@ -240,7 +242,7 @@ ${JSON.stringify(source)}`;
 
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: geminiModel,
     contents: [{ parts: [{ text: prompt }] }],
     config: {
       responseMimeType: 'application/json',
@@ -313,6 +315,7 @@ async function getProviderKeyForUser(userId: string, provider: ModelProvider) {
 async function generatePromptsBatch(
   provider: ModelProvider,
   apiKey: string,
+  geminiModel: string,
   segments: Array<{ index: number; relevantContext: string }>,
   localContext: string,
   settings: any,
@@ -346,7 +349,7 @@ async function generatePromptsBatch(
   try {
     if (provider === 'gemini') {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: geminiModel,
         contents: [{ parts: [{ text: userPrompt }] }],
         config: {
           systemInstruction: getSystemInstruction(settings),
@@ -377,7 +380,7 @@ async function generatePromptsBatch(
 
     const client = new OpenAI({ apiKey: apiKey.trim() });
     const completion = await client.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: getSystemInstruction(settings) },
@@ -394,7 +397,7 @@ async function generatePromptsBatch(
   } catch (error: any) {
     if ((error.status === 500 || error.message?.includes('500')) && retryCount < 2) {
       await new Promise((r) => setTimeout(r, 1000));
-      return generatePromptsBatch(provider, apiKey, segments, localContext, settings, retryCount + 1);
+      return generatePromptsBatch(provider, apiKey, geminiModel, segments, localContext, settings, retryCount + 1);
     }
     return [];
   }
@@ -405,7 +408,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = String(body?.action || '');
     const userId = String(body?.userId || '');
-    const provider: ModelProvider = body?.provider === 'openai' ? 'openai' : 'gemini';
+    const geminiModel = body?.geminiModel === 'gemini-2.5-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
     if (!userId) return NextResponse.json({ error: 'Thiếu userId.' }, { status: 400 });
 
     const { error, profile, key } = await getProviderKeyForUser(userId, provider);
@@ -415,7 +418,7 @@ export async function POST(req: NextRequest) {
       const segments = Array.isArray(body?.segments) ? body.segments : [];
       const settings = body?.settings || {};
       const localContext = String(body?.localContext || '');
-      const results = await generatePromptsBatch(provider, key, segments, localContext, settings);
+      const results = await generatePromptsBatch(provider, key, geminiModel, segments, localContext, settings);
       return NextResponse.json({ success: true, results });
     }
 
@@ -424,7 +427,7 @@ export async function POST(req: NextRequest) {
       if (!transcript.trim()) {
         return NextResponse.json({ error: 'Thiếu transcript để tạo SEO.' }, { status: 400 });
       }
-      const seo = await generateSeoByProvider(provider, key, transcript);
+      const seo = await generateSeoByProvider(provider, key, geminiModel, transcript);
       return NextResponse.json({ success: true, seo, lang: detectSeoLanguage(transcript) });
     }
 
@@ -437,7 +440,7 @@ export async function POST(req: NextRequest) {
       if (!['vi', 'ja', 'ko', 'en'].includes(targetLang)) {
         return NextResponse.json({ error: 'Ngôn ngữ dịch không hợp lệ.' }, { status: 400 });
       }
-      const translated = await translateSeoPackageByProvider(provider, key, sourceSeo, targetLang);
+      const translated = await translateSeoPackageByProvider(provider, key, geminiModel, sourceSeo, targetLang);
       return NextResponse.json({ success: true, seo: translated, lang: targetLang });
     }
 

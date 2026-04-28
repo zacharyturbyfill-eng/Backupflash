@@ -194,7 +194,7 @@ function normalizeSeoPackage(input: any, transcript: string, lang: SeoLanguage):
   };
 }
 
-async function generateSeoByProvider(provider: 'gemini' | 'openai', apiKey: string, transcript: string, lang: SeoLanguage): Promise<SeoPackage> {
+async function generateSeoByProvider(provider: 'gemini' | 'openai', apiKey: string, geminiModel: string, transcript: string, lang: SeoLanguage): Promise<SeoPackage> {
   const targetLanguage = languageName(lang);
   const prompt = `You are a YouTube SEO specialist.
 Task: from the transcript below, generate a production-ready YouTube SEO package and return strict JSON schema:
@@ -242,7 +242,7 @@ ${JSON.stringify(pkg)}`;
 
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: geminiModel,
       contents: [{ parts: [{ text: correctionPrompt }] }],
       config: { responseMimeType: 'application/json' },
     });
@@ -253,7 +253,7 @@ ${JSON.stringify(pkg)}`;
   if (provider === 'openai') {
     const openai = new OpenAI({ apiKey });
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
@@ -264,7 +264,7 @@ ${JSON.stringify(pkg)}`;
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: geminiModel,
     contents: [{ parts: [{ text: prompt }] }],
     config: {
       responseMimeType: 'application/json',
@@ -288,7 +288,10 @@ ${JSON.stringify(pkg)}`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { segments, userId, genre, style, nationality, provider, isFinal, fullTranscript, allResults, action, transcript } = await req.json();
+    const body = await req.json();
+    const { segments, userId, genre, style, nationality, isFinal, fullTranscript, allResults, action, transcript } = body;
+    const provider: 'gemini' | 'openai' = body?.provider === 'openai' ? 'openai' : 'gemini';
+    const geminiModel = body?.geminiModel === 'gemini-2.5-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
 
     if (!userId) return NextResponse.json({ error: 'Thiếu UserId' }, { status: 400 });
 
@@ -312,7 +315,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Thiếu transcript để tạo SEO.' }, { status: 400 });
       }
       const lang = detectSeoLanguage(sourceTranscript);
-      const seo = await generateSeoByProvider(provider === 'openai' ? 'openai' : 'gemini', finalKey, sourceTranscript, lang);
+      const seo = await generateSeoByProvider(provider === 'openai' ? 'openai' : 'gemini', finalKey, geminiModel, sourceTranscript, lang);
       return NextResponse.json({ success: true, seo });
     }
 
@@ -382,7 +385,7 @@ Genre: ${genre} | Style: ${style} | Nationality: ${nationality}`;
     } else {
       const ai = new GoogleGenAI({ apiKey: finalKey });
       const model = ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: geminiModel,
         contents: [{ parts: [{ text: `Segments: ${JSON.stringify(segments)}. Generate prompts. Return JSON { "results": [{ "segmentIndex": number, "prompt": "string" }] }` }] }],
         config: {
           systemInstruction: systemInstruction,

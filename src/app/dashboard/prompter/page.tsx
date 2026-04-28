@@ -35,9 +35,9 @@ export default function PrompterPage() {
   const [user, setUser] = useState<any>(null);
   const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
   
-  const [genre, setGenre] = useState('Medical Documentary');
   const [style, setStyle] = useState('Cinematic Realism');
   const [nationality, setNationality] = useState('Vietnamese');
+  const [geminiModel, setGeminiModel] = useState<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('gemini-2.5-flash-lite');
 
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -168,7 +168,7 @@ export default function PrompterPage() {
           body: JSON.stringify({ 
             segments: chunk.map(s => ({ segmentIndex: s.id, text: s.text })), 
             userId: user.id,
-            genre, style, nationality, provider
+            genre, style, nationality, provider, geminiModel
           }),
         });
 
@@ -432,13 +432,27 @@ export default function PrompterPage() {
                 <Clock size={14}/> Lịch Sử Prompt
               </button>
 
-              <div className="glass-card p-1.5 rounded-2xl border-white/10 flex items-center gap-1 shadow-2xl">
-                  <button onClick={() => setProvider('gemini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'gemini' ? 'btn-ombre text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
-                    <Cpu size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
-                  </button>
-                  <button onClick={() => setProvider('openai')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'openai' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
-                    <Zap size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
-                  </button>
+              <div className="glass-card p-1.5 rounded-2xl border-white/10 flex flex-col items-stretch gap-1 shadow-2xl">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setProvider('gemini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'gemini' ? 'btn-ombre text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
+                      <Cpu size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Gemini</span>
+                    </button>
+                    <button onClick={() => setProvider('openai')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${provider === 'openai' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
+                      <Zap size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">ChatGPT</span>
+                    </button>
+                  </div>
+                  {provider === 'gemini' && (
+                    <div className="flex bg-black/40 p-1 rounded-xl gap-1 mt-1 border border-white/5">
+                      <button
+                        onClick={() => setGeminiModel('gemini-2.5-flash-lite')}
+                        className={`flex-1 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${geminiModel === 'gemini-2.5-flash-lite' ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-400'}`}
+                      >Lite</button>
+                      <button
+                        onClick={() => setGeminiModel('gemini-2.5-flash')}
+                        className={`flex-1 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all ${geminiModel === 'gemini-2.5-flash' ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-400'}`}
+                      >Flash</button>
+                    </div>
+                  )}
               </div>
           </div>
         </header>

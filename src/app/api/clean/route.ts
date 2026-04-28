@@ -137,7 +137,7 @@ const cleanWithOpenAI = async (apiKey: string, text: string): Promise<string> =>
   return outputs.join('\n\n').trim();
 };
 
-const cleanWithGemini = async (apiKey: string, text: string, geminiModel: string = 'gemini-2.5-flash'): Promise<string> => {
+const cleanWithGemini = async (apiKey: string, text: string, geminiModel: string = 'gemini-2.5-flash-lite'): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
   const chunks = splitTextSmartly(text, CLEAN_CHUNK_SIZE);
   const outputs: string[] = [];

@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
 
     const provider: "gemini" | "openai" = rawProvider === "openai" ? "openai" : "gemini";
     const geminiModel: string =
-      rawModel === "gemini-2.5-flash-lite" ? "gemini-2.5-flash-lite" : "gemini-2.5-flash";
+      rawModel === "gemini-2.5-flash" ? "gemini-2.5-flash" : "gemini-2.5-flash-lite";
 
     const healthConfig = config as HealthConfig;
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0] || "127.0.0.1";

@@ -75,7 +75,7 @@ ${originalChunk}
 Chỉ trả về nội dung đã viết lại, không thêm giải thích.
 `;
 
-const rewriteWithGemini = async (apiKey: string, prompt: string, geminiModel: string = 'gemini-2.5-flash') => {
+const rewriteWithGemini = async (apiKey: string, prompt: string, geminiModel: string = 'gemini-2.5-flash-lite') => {
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
   const response = await ai.models.generateContent({
     model: geminiModel,
@@ -87,7 +87,7 @@ const rewriteWithGemini = async (apiKey: string, prompt: string, geminiModel: st
 const rewriteWithOpenAI = async (apiKey: string, prompt: string) => {
   const openai = new OpenAI({ apiKey: apiKey.trim() });
   const response = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
+    model: "gpt-4o-mini",
     temperature: 0.7,
     messages: [
       {
