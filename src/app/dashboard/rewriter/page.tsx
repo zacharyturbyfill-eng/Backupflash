@@ -16,6 +16,7 @@ import {
   Video,
   Volume2,
   Mic,
+  HeartPulse,
 } from "lucide-react";
 import SystemAnnouncementBanner from "@/components/SystemAnnouncementBanner";
 
@@ -164,6 +165,10 @@ export default function RewriterPage() {
           <button onClick={() => router.push("/dashboard/podcast")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+          <button onClick={() => router.push("/dashboard/radio-health")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <HeartPulse className="w-5 h-5 flex-shrink-0 group-hover:text-rose-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Radio Sức Khỏe</span>
           </button>
           <button onClick={() => router.push("/dashboard/medical3")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Video className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" />

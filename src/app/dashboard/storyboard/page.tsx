@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Clock, LogOut, Mic, Settings, Sparkles, Type, User, Volume2 } from 'lucide-react';
+import { Clock, LogOut, Mic, Radio, Settings, Sparkles, Type, User, Volume2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
 
@@ -300,6 +300,7 @@ export default function StoryboardPage() {
           <button onClick={() => router.push('/dashboard/voice')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai84)</span></button>
           <button onClick={() => router.push('/dashboard/voice-ai33')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Volume2 className="w-5 h-5 flex-shrink-0 group-hover:text-cyan-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Giọng Nói AI (ai33)</span></button>
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Podcast Studio</span></button>
+          <button onClick={() => router.push('/dashboard/radio-health')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Radio className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Radio Sức Khỏe</span></button>
           <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Type className="w-5 h-5 flex-shrink-0 group-hover:text-fuchsia-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Tool viết lại truyện</span></button>
           <button onClick={() => router.push('/dashboard/medical3')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group"><Sparkles className="w-5 h-5 flex-shrink-0 group-hover:text-orange-400 transition-colors" /><span className="ml-3 font-medium hidden md:block">Prompt Medical 3.0</span></button>
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg"><User className="w-5 h-5 flex-shrink-0 text-violet-400" /><span className="ml-3 font-semibold hidden md:block">Character Prompt</span></button>

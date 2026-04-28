@@ -7,7 +7,7 @@ import {
   Volume2, CheckCircle2, Loader2, Trash2, Users,
   Plus, Clock, Sparkles, Video, Settings, LogOut,
   Cpu, Zap, AlertCircle, Upload, Coins, Calculator,
-  Headphones, Edit3, X
+  Headphones, Edit3, X, Radio
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -1101,6 +1101,10 @@ export default function VoicePage() {
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Mic className="w-5 h-5 flex-shrink-0" />
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/radio-health')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <Radio className="w-5 h-5 flex-shrink-0" />
+            <span className="ml-3 font-medium hidden md:block">Radio Sức Khỏe</span>
           </button>
           <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Sparkles className="w-5 h-5 flex-shrink-0 text-fuchsia-300" />

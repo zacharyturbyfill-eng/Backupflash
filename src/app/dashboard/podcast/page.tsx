@@ -18,6 +18,7 @@ import {
   Clock,
   X,
   User,
+  HeartPulse,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import SystemAnnouncementBanner from "@/components/SystemAnnouncementBanner";
@@ -233,6 +234,10 @@ export default function PodcastPage() {
           <button className="w-full flex items-center p-4 rounded-2xl bg-white/[0.03] text-white border border-white/5 shadow-lg">
             <Mic className="w-5 h-5 flex-shrink-0 text-indigo-400" />
             <span className="ml-3 font-semibold hidden md:block">Podcast Studio</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/radio-health')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <HeartPulse className="w-5 h-5 flex-shrink-0 text-rose-400" />
+            <span className="ml-3 font-medium hidden md:block">Radio Sức Khỏe</span>
           </button>
           <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <Sparkles className="w-5 h-5 flex-shrink-0 text-fuchsia-300" />

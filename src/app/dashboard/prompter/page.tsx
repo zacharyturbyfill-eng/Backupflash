@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Sparkles, Trash2, Copy, Check, LogOut, Settings, 
   AlertCircle, X, ChevronDown, Cpu, Zap, Loader2, Type, 
-  Clock, Video, Languages, Palette, Layout, ArrowRight, Volume2, Mic
+  Clock, Video, Languages, Palette, Layout, ArrowRight, Volume2, Mic, Radio
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
@@ -380,6 +380,10 @@ export default function PrompterPage() {
           <button onClick={() => router.push('/dashboard/podcast')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Podcast Studio</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/radio-health')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <Radio className="w-5 h-5 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Radio Sức Khỏe</span>
           </button>
 
           <button onClick={() => router.push('/dashboard/rewriter')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
