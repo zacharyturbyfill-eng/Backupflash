@@ -76,10 +76,14 @@ async function generateWithGemini(
   try {
     const result = await ai.models.generateContent({
       model,
-      contents: fullPrompt,
+      contents: [{ parts: [{ text: fullPrompt }] }],
       config: { temperature, maxOutputTokens: 8192 },
     });
-    return result.text || "";
+    const text = result.text || "";
+    if (!text) {
+      console.warn(`Gemini returned empty text for model ${model}`);
+    }
+    return text;
   } catch (error: any) {
     const status = error?.status || error?.code || 0;
     const msg = (error?.message || "").toLowerCase();
@@ -138,12 +142,13 @@ async function generateScriptOutline(
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: fullPrompt,
+      contents: [{ parts: [{ text: fullPrompt }] }],
       config: {
         responseMimeType: "application/json",
       },
     });
-    return JSON.parse(cleanJson(response.text || "[]"));
+    const text = response.text || "[]";
+    return JSON.parse(cleanJson(text));
   } catch (error: any) {
     const status = error?.status || error?.code || 0;
     const msg = (error?.message || "").toLowerCase();
@@ -372,14 +377,22 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 3: Finalize
+    if (!fullResult || fullResult.length < 50) {
+       console.error("Full result is suspiciously short or empty:", fullResult);
+    }
+
     await new Promise((r) => setTimeout(r, 1000));
     const finalizedScript = await finalizeScript(
       key,
       provider,
       geminiModel,
-      fullResult,
+      fullResult || "Lỗi: Không có nội dung để xử lý.",
       healthConfig
     );
+
+    if (!finalizedScript) {
+      throw new Error("Không thể hoàn thiện kịch bản (kết quả rỗng).");
+    }
 
     // Log usage
     await Promise.all([
