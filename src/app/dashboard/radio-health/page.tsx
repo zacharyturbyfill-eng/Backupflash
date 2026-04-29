@@ -56,8 +56,6 @@ export default function RadioHealthPage() {
   const [callerIdentityMode, setCallerIdentityMode] = useState<CallerMode>("NAME");
   const [callerName, setCallerName] = useState("");
   const [detailedIdea, setDetailedIdea] = useState("");
-  const [sampleScript, setSampleScript] = useState("");
-  const [characterDNA, setCharacterDNA] = useState("");
   const [charCount, setCharCount] = useState(20000);
 
   // Output state
@@ -95,7 +93,7 @@ export default function RadioHealthPage() {
   }, [router]);
 
   const handleGenerate = async () => {
-    if (!user?.id || !detailedIdea.trim() || !sampleScript.trim()) return;
+    if (!user?.id || !detailedIdea.trim()) return;
     if (loading) return; // ← Chống double-click / double-trigger
     setLoading(true);
     setErrorText("");
@@ -133,8 +131,6 @@ export default function RadioHealthPage() {
             callerIdentityMode,
             callerName,
             detailedIdea,
-            sampleScript,
-            characterDNA,
             charCount,
           },
         }),
@@ -474,42 +470,13 @@ export default function RadioHealthPage() {
             </div>
           </div>
 
-          {/* Row 4: ADN */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="glass-card rounded-2xl p-5 border-white/5">
-              <label className="block text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">
-                ADN Phong Cách · Kịch Bản Mẫu
-              </label>
-              <p className="text-[10px] text-slate-500 italic mb-2">Dán kịch bản có cấu trúc bạn muốn AI học theo.</p>
-              <textarea
-                value={sampleScript}
-                onChange={(e) => setSampleScript(e.target.value)}
-                placeholder="Dán kịch bản mẫu tại đây..."
-                className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-slate-300 outline-none focus:border-indigo-500/50 transition-all resize-none font-mono leading-relaxed"
-              />
-            </div>
-            <div className="glass-card rounded-2xl p-5 border-rose-500/10 border">
-              <label className="block text-[10px] font-black text-rose-300 uppercase tracking-widest mb-1">
-                ADN Lời Thoại · Giọng Văn Nhân Vật
-              </label>
-              <p className="text-[10px] text-slate-500 italic mb-2">
-                Dán các câu thoại đặc trưng của Đinh Đoàn, Thành Văn, Thúy Hải...
-              </p>
-              <textarea
-                value={characterDNA}
-                onChange={(e) => setCharacterDNA(e.target.value)}
-                placeholder={`VD: Đinh Đoàn: "Câu chuyện của bạn thực sự làm tôi suy nghĩ..."`}
-                className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-slate-300 outline-none focus:border-rose-500/50 transition-all resize-none font-mono leading-relaxed"
-              />
-            </div>
-          </div>
         </div>
 
         {/* Generate button */}
         <div className="mb-6">
           <button
             onClick={handleGenerate}
-            disabled={loading || !detailedIdea.trim() || !sampleScript.trim()}
+            disabled={loading || !detailedIdea.trim()}
             className="w-full py-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-2xl disabled:opacity-30"
             style={{
               background: loading

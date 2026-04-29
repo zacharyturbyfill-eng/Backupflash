@@ -303,9 +303,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate required fields
-    if (!healthConfig.detailedIdea?.trim() || !healthConfig.sampleScript?.trim()) {
+    if (!healthConfig.detailedIdea?.trim()) {
       return NextResponse.json(
-        { error: "Vui lòng nhập đầy đủ ý tưởng và kịch bản mẫu." },
+        { error: "Vui lòng nhập ý tưởng / synopsis cho kịch bản." },
         { status: 400 }
       );
     }
@@ -339,51 +339,34 @@ export async function POST(req: NextRequest) {
     }
 
     const contextPrompt = `
-      === HƯỚNG DẪN BIÊN KỊCH CHUYÊN NGHIỆP ===
-      BỐI CẢNH: ${
+      === BỐI CẢNH CHƯƠNG TRÌNH ===
+      Hình thức: ${
         healthConfig.format === "STUDIO_PODCAST"
-          ? "PODCAST STUDIO (MC, Chuyên gia và Thính giả ngồi trực tiếp tại studio)"
-          : "HOTLINE RADIO (Kết nối điện thoại)"
+          ? "PODCAST STUDIO (MC, khách mời và thính giả ngồi trực tiếp tại studio)"
+          : "HOTLINE RADIO (thính giả kết nối qua điện thoại)"
       }
 
-      === DANH SÁCH NHÂN VẬT (BẮT BUỘC DÙNG ĐÚNG TÊN NÀY TRONG LỜI THOẠI) ===
-      1. MC dẫn chương trình → Tên trong lời thoại: "${hostLabel}"
-         Vai trò: CHỈ dẫn dắt, hỏi, thấu cảm. TUYỆT ĐỐI CẤM tư vấn y tế.
-         Giới tính: ${healthConfig.hostGender}
+      === NHÂN VẬT (DÙNG ĐÚNG TÊN NÀY TRONG LỜI THOẠI) ===
+      1. MC: "${hostLabel}" — CHỈ dẫn dắt, hỏi, thấu cảm. CẤM tư vấn y tế. Giới tính: ${healthConfig.hostGender}
+      2. Khách mời: "${guestShortLabel}" (${guestFullLabel}) — Người DUY NHẤT được đưa ra lời khuyên. Giới tính: ${healthConfig.doctorGender}
+      3. Thính giả: "${callerDisplayName}" — Người chia sẻ vấn đề.
 
-      2. Khách mời tư vấn → Tên trong lời thoại: "${guestShortLabel}"
-         Chức danh đầy đủ: ${guestFullLabel}
-         Vai trò: Người DUY NHẤT được đưa ra lời khuyên, phân tích, giải pháp.
-         Giới tính: ${healthConfig.doctorGender}
-
-      3. Thính giả → Tên trong lời thoại: "${callerDisplayName}"
-         Vai trò: Người chia sẻ vấn đề cá nhân.
-
-      ĐỊNH DẠNG LỜI THOẠI BẮT BUỘC:
-      ${hostLabel}: [lời thoại MC]
-      ${guestShortLabel}: [lời thoại khách mời]
-      ${callerDisplayName}: [lời thoại thính giả]
+      ĐỊNH DẠNG LỜI THOẠI:
+      ${hostLabel}: [lời thoại]
+      ${guestShortLabel}: [lời thoại]
+      ${callerDisplayName}: [lời thoại]
 
       LUẬT MỞ ĐẦU:
       ${mcGreetingRequirement}
 
-      === DỮ LIỆU ADN LỜI THOẠI (HỌC THEO CÁCH DÙNG TỪ, GIỌNG VĂN) ===
-      """
-      ${healthConfig.characterDNA || "(Không có DNA, tự xây dựng phong cách phù hợp)"}
-      """
+      === SYNOPSIS / Ý TƯỞNG CẦN TRIỂN KHAI ===
+      ${healthConfig.detailedIdea}
 
-      === CẤU TRÚC KỊCH BẢN MẪU (HỌC THEO PHONG CÁCH) ===
-      """
-      ${healthConfig.sampleScript}
-      """
-
-      Ý TƯỞNG CẦN TRIỂN KHAI: ${healthConfig.detailedIdea}
-
-      LUẬT BIÊN TẬP SỐNG CÒN:
-      1. CẤM: Chỉ dẫn sân khấu trong ngoặc đơn (cười), (khóc)...
+      LUẬT BIÊN TẬP:
+      1. CẤM: Chỉ dẫn sân khấu (cười), (khóc)...
       2. CẤM: Lặp ý hoặc chào hỏi lại giữa kịch bản.
-      3. CẤM: Ghi tiêu đề "Phần 1", "Phần 2"...
-      4. BẮT BUỘC: Dùng đúng tên nhân vật như đã liệt kê ở trên.
+      3. CẤM: Tiêu đề "Phần 1", "Phần 2"...
+      4. BẮT BUỘC: Dùng đúng tên nhân vật đã liệt kê.
     `;
 
     // Step 1: Generate outline
