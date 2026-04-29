@@ -408,6 +408,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = String(body?.action || '');
     const userId = String(body?.userId || '');
+    const provider: ModelProvider = body?.provider === 'openai' ? 'openai' : 'gemini';
     const geminiModel = body?.geminiModel === 'gemini-2.5-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
     if (!userId) return NextResponse.json({ error: 'Thiếu userId.' }, { status: 400 });
 
