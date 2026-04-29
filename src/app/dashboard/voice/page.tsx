@@ -140,9 +140,10 @@ export default function VoicePage() {
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [needsVoiceRemapAfterSwitch, setNeedsVoiceRemapAfterSwitch] = useState(false);
-  const [switchedFromProvider, setSwitchedFromProvider] = useState<"ai84" | "ai33" | null>(null);
-  const [showSwitchReminderModal, setShowSwitchReminderModal] = useState(false);
-  const skipAutoParseRef = useRef(false);
+  // Native Dialogue (v2) States
+  const [nativeTaskId, setNativeTaskId] = useState<string | null>(null);
+  const [nativeProgress, setNativeProgress] = useState<{ done: number; total: number } | null>(null);
+  const [useNativeDialogue, setUseNativeDialogue] = useState(true);
 
   const saveProviderSnapshot = useCallback((provider: "ai84" | "ai33", data: {
     text: string;
@@ -726,6 +727,112 @@ export default function VoicePage() {
     }
   };
 
+  const pollNativeDialogueStatus = async (taskId: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const MAX_POLL_MS = 300000; // 5 phút cho hội thoại dài
+      
+      const poll = async () => {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          reject("Quá thời gian chờ xử lý hội thoại.");
+          return;
+        }
+        try {
+          const res = await fetch("/api/voice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "get_dialogue_status", userId: user.id, taskId }),
+          });
+          const data = await res.json();
+          if (data.status === "done") {
+            resolve(data.audio_url);
+            return;
+          }
+          if (data.status === "failed") {
+            reject(data.error_message || "Tạo hội thoại thất bại");
+            return;
+          }
+          if (data.progress) {
+            setNativeProgress({
+              done: data.progress.segments_done,
+              total: data.progress.segments_total
+            });
+          }
+          setTimeout(poll, 5000);
+        } catch {
+          setTimeout(poll, 10000);
+        }
+      };
+      poll();
+    });
+  };
+
+  const generateNativeDialogue = async () => {
+    const linesToProcess = conversationLines;
+    if (!ensureConversationVoicesSelected(linesToProcess)) return;
+    
+    setIsGenerating(true); setError(null); setNativeTaskId(null); setNativeProgress(null);
+    setMergedPreviewUrl(null); setMergedDownloadUrl(null);
+
+    try {
+      // 1. Map speakers
+      const speakersMap = new Map<string, number>();
+      const speakersList: any[] = [];
+      uniqueSpeakers.forEach((name, idx) => {
+        const id = idx + 1;
+        speakersMap.set(name, id);
+        speakersList.push({
+          id,
+          voice_id: speakerVoiceMap[name],
+          model_id: model
+        });
+      });
+
+      // 2. Map inputs
+      const inputs = linesToProcess.map(line => ({
+        speaker_id: speakersMap.get(line.speaker) || 1,
+        text: line.text
+      }));
+
+      // 3. Create job
+      const res = await fetch("/api/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_dialogue",
+          userId: user.id,
+          provider: "minimax",
+          speakers: speakersList,
+          inputs,
+          pause_between_turns_ms: pauseDuration,
+          with_transcript: true
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.task_id) throw new Error(data.message || "Không thể tạo job hội thoại");
+
+      setNativeTaskId(data.task_id);
+      
+      // 4. Poll status
+      const audioUrl = await pollNativeDialogueStatus(data.task_id);
+      
+      // 5. Update UI when done
+      setMergedPreviewUrl(audioUrl);
+      setMergedDownloadUrl(audioUrl);
+      setMergedFilename(`${safeTitleSlug}_dialogue_${Date.now()}.mp3`);
+      
+      // Mark all lines as done visually
+      setConversationLines(prev => prev.map(l => ({ ...l, status: "done" })));
+      
+    } catch (err: any) {
+      setError("Lỗi tạo hội thoại Native: " + err.message);
+    } finally {
+      setIsGenerating(false);
+      setNativeProgress(null);
+    }
+  };
+
   const processLine = async (line: ConversationLine, keyIdx: number, retryCount = 0): Promise<boolean> => {
     const MAX_LINE_RETRY = 1;
     const RETRY_DELAY_MS = 2000;
@@ -742,6 +849,15 @@ export default function VoicePage() {
           canonical_voice_id: voiceId, text: line.text, model, speed, pitch, volume,
         }),
       });
+      
+      const result = await res.json();
+      
+      // Kiểm tra chặn IP
+      if (result._isIpBlocked) {
+        setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "IP của bạn đang bị chặn tạm thời (Suspicious Activity). Hãy tạm dừng 5-10 phút." } : l));
+        return true; // Kích hoạt Hard Stop
+      }
+
       if (res.status === 429) {
         if (retryCount < MAX_LINE_RETRY) {
           setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, error: `Bị giới hạn, đổi key và thử nhanh lại sau ${RETRY_DELAY_MS / 1000}s...` } : l));
@@ -751,7 +867,6 @@ export default function VoicePage() {
         setConversationLines(prev => prev.map(l => l.id === line.id ? { ...l, status: "failed", error: "Bị giới hạn tạm thời, bấm 'Thử lại các câu lỗi' để chạy tiếp ngay." } : l));
         return false;
       }
-      const result = await res.json();
       if (result.success) {
         // Cập nhật dead key list từ response
         if (result._keyHealth?.deadKeys) setDeadKeyList(result._keyHealth.deadKeys);
@@ -779,6 +894,11 @@ export default function VoicePage() {
   };
 
   const generateConversationTTS = async () => {
+    if (useNativeDialogue && CURRENT_PROVIDER === "ai84") {
+      await generateNativeDialogue();
+      return;
+    }
+
     const linesToProcess = conversationLines.filter(l => l.status !== "done");
     if (!ensureConversationVoicesSelected(linesToProcess)) return;
     if (needsVoiceRemapAfterSwitch) {
@@ -833,7 +953,11 @@ export default function VoicePage() {
       const segmentConcurrency = Math.min(concurrencyLimit, queue.length);
       const segmentWorkers = [];
       for (let i = 0; i < segmentConcurrency; i++) {
-        segmentWorkers.push((async () => { await new Promise(r => setTimeout(r, i * 3000)); return runNext(); })());
+        segmentWorkers.push((async () => { 
+          // Giãn cách khởi tạo các worker để tránh burst request lúc đầu
+          await new Promise(r => setTimeout(r, (keyIdx * 2000) + (i * 3500))); 
+          return runNext(); 
+        })());
       }
       await Promise.all(segmentWorkers);
     });
@@ -1203,6 +1327,12 @@ export default function VoicePage() {
               <button onClick={() => setIsConversationMode(true)} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${isConversationMode ? 'btn-ombre text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>Hội thoại</button>
             </div>
             {isConversationMode && (
+              <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 ml-2">
+                <button onClick={() => setUseNativeDialogue(false)} className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${!useNativeDialogue ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-500 hover:bg-white/5'}`}>Thủ công</button>
+                <button onClick={() => setUseNativeDialogue(true)} className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${useNativeDialogue ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-500 hover:bg-white/5'}`}>Native (V2)</button>
+              </div>
+            )}
+            {isConversationMode && !useNativeDialogue && (
               <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Luồng:</span>
                 <input type="number" min="1" max="5" value={concurrencyLimit} onChange={(e) => setConcurrencyLimit(parseInt(e.target.value))}
@@ -1463,6 +1593,26 @@ export default function VoicePage() {
                   </div>
                   <p className="text-[9px] text-rose-400/50 mt-2 italic">He thong bo qua key loi va thu key khac. Neu van loi, bam chuyen nha cung cap hoac bam thu lai.</p>
                 </motion.div>
+              )}
+
+              {/* Native Dialogue Progress Bar */}
+              {isGenerating && useNativeDialogue && nativeProgress && (
+                <div className="mt-4 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                      <Loader2 size={12} className="animate-spin"/> Đang xử lý hội thoại Native (V2)
+                    </span>
+                    <span className="text-[10px] font-bold text-white">{nativeProgress.done} / {nativeProgress.total} câu</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="h-full bg-indigo-500"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(nativeProgress.done / nativeProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang gộp âm thanh trực tiếp trên Server. Vui lòng chờ...</p>
+                </div>
               )}
 
               {/* Conversation Progress */}

@@ -98,8 +98,14 @@ function markKeyFailure(key: string, error: string, label?: string) {
   health.lastError = error;
 
   if (health.consecutiveFailures >= DEAD_KEY_THRESHOLD) {
-    health.deadSince = Date.now();
-    console.log(`[KEY DEAD] "${health.label}" đã bị đánh dấu CHẾT sau ${health.consecutiveFailures} lỗi liên tiếp. Lỗi cuối: ${error}`);
+    // Không đánh dấu chết nếu là lỗi chặn IP hoặc lỗi mạng chung
+    const isIpBlock = error.toLowerCase().includes('suspicious activity') || error.toLowerCase().includes('blocked');
+    if (!isIpBlock) {
+      health.deadSince = Date.now();
+      console.log(`[KEY DEAD] "${health.label}" đã bị đánh dấu CHẾT sau ${health.consecutiveFailures} lỗi liên tiếp. Lỗi cuối: ${error}`);
+    } else {
+      console.log(`[IP BLOCKED] Phát hiện chặn IP khi dùng key "${health.label}". Không đánh dấu chết key.`);
+    }
   }
 }
 
@@ -568,8 +574,11 @@ export async function POST(req: NextRequest) {
         }
 
         const deadReport = getDeadKeyReport(allEntries);
+        const isIpBlock = !res.ok && (data.message || '').toLowerCase().includes('suspicious activity');
+        
         return NextResponse.json({
           ...data,
+          _isIpBlocked: isIpBlock,
           _keyHealth: {
             usedKey: entry.label,
             usedKeyIndex: usedIndex,
@@ -764,6 +773,58 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(data, { status: res.status });
       } catch (err: any) {
         return NextResponse.json({ success: false, message: `[${entry.label}] Lỗi clone: ${err.message}` }, { status: 500 });
+      }
+    }
+
+    // --- ACTION: Tạo Hội Thoại Native (v2) ---
+    if (action === 'create_dialogue') {
+      const { entry } = getNextAliveEntry(allEntries);
+      try {
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v2/text-to-dialogue/async`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              provider: body.provider || 'minimax',
+              speakers: body.speakers,
+              inputs: body.inputs,
+              pause_between_turns_ms: body.pause_between_turns_ms || 300,
+              output_format: body.output_format || 'mp3_44100_128',
+              with_transcript: body.with_transcript ?? true,
+              client_task_uuid: body.client_task_uuid,
+            }),
+            signal: AbortSignal.timeout(60000),
+          }
+        );
+        const data = await res.json();
+        if (res.ok) markKeySuccess(entry.api_key, entry.label);
+        else markKeyFailure(entry.api_key, data.message || 'Dialogue creation failed', entry.label);
+        
+        return NextResponse.json(data, { status: res.status });
+      } catch (err: any) {
+        return NextResponse.json({ success: false, message: err.message }, { status: 500 });
+      }
+    }
+
+    // --- ACTION: Check trạng thái Hội Thoại Native (v2) ---
+    if (action === 'get_dialogue_status') {
+      const { entry } = getNextAliveEntry(allEntries);
+      try {
+        const res = await fetchAi84(
+          allEntries,
+          entry,
+          proxySettings,
+          `${API_BASE_URL}/v2/text-to-dialogue/async/${body.taskId}`,
+          { headers: { 'xi-api-key': entry.api_key, 'Content-Type': 'application/json' } }
+        );
+        const data = await res.json();
+        return NextResponse.json(data, { status: res.status });
+      } catch (err: any) {
+        return NextResponse.json({ success: false, message: err.message }, { status: 500 });
       }
     }
 
