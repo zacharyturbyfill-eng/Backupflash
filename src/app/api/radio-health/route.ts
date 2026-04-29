@@ -187,10 +187,16 @@ BƯỚC 2 — MC kết nối với thính giả "${derived.callerDisplayName}":
   - MC lắng nghe, thấu cảm, hỏi thêm 2-3 câu để làm rõ vấn đề.
   - MC KHÔNG đưa ra lời khuyên chuyên môn.
 
-BƯỚC 3 — MC giới thiệu và chuyển cho khách mời:
-  - MC giới thiệu ${derived.guestFullLabel} với tông trân trọng.
-  - MC mời ${derived.guestShortLabel} vào cuộc.
-  - Kết thúc phần mở đầu bằng lời thoại đầu tiên của ${derived.guestShortLabel} (chỉ câu chào/nhận lời).
+BƯỚC 3 — MC chuyển cuộc cho khách mời (CHỈ 1 CÂU DUY NHẤT):
+  - MC nói ĐÚNG MỘT CÂU: ví dụ: "${derived.guestShortLabel} sẽ trò chuyện cùng bạn về vấn đề này."
+  - SAU ĐÓ KẾT THÚC NGAY phần mở đầu.
+  - TUYỆT ĐỐI CẤM: ${derived.guestShortLabel} chào hỏi hay tự giới thiệu trong phần này.
+  - TUYỆT ĐỐI CẤM: viết nhiều hơn 1 câu cho bước chuyển này.
+
+=== XUỢNG HÔ BẮT BUỘC ===
+- Thính giả xưng hô bằng "em" hoặc "tôi". TUYỆT ĐỐI CẤM dùng "cháu".
+- Khách mời gọi thính giả là "bạn" hoặc "anh/chị" tuỳ giới tính.
+- MC gọi thính giả bằng tên hoặc "bạn".
 
 === LUẬT KỸ THUẬT ===
 - Mỗi lời thoại bắt đầu bằng: [Tên nhân vật]: [nội dung]
@@ -226,6 +232,11 @@ async function generateCounseling(
 Bạn là biên kịch Radio chuyên nghiệp. Viết PHẦN TƯ VẤN ${phaseIndex + 1}/${totalCounselingPhases} của kịch bản.
 MỤC TIÊU ĐỘ DÀI: Viết ĐÚNG ${targetChars} ký tự. Không được dừng trước khi đạt đủ số ký tự.
 
+=== NHÂN VẬT TRONG PHẦN NÀY ===
+CHỈ CÓ HAI NHÂN VẬT: "${derived.guestShortLabel}" và "${derived.callerDisplayName}".
+TUYỆT ĐỐI CẤM "${derived.hostLabel}" (MC) xuất hiện trong phần này.
+Nếu bạn định viết "${derived.hostLabel}:" → xóa đi, thay bằng lời thoại của ${derived.guestShortLabel} hoặc ${derived.callerDisplayName}.
+
 === QUY TẮC NỐI TIẾP ===
 Đây là phần TIẾP NỐI. CẤM chào hỏi lại. CẤM giới thiệu lại nhân vật.
 Bắt đầu ngay bằng lời thoại nối tiếp cuộc hội thoại trước.
@@ -233,16 +244,14 @@ Bắt đầu ngay bằng lời thoại nối tiếp cuộc hội thoại trướ
 === NHIỆM VỤ PHẦN NÀY ===
 ${derived.guestShortLabel} (${derived.guestFullLabel}) tư vấn chuyên sâu cho "${derived.callerDisplayName}":
 - Phân tích nguyên nhân, bối cảnh vấn đề từ synopsis
-- Hỏi thêm các câu hỏi khai thác (open-ended questions)
-- Giải thích rõ từng khía cạnh của vấn đề
+- Hỏi thêm các câu hỏi khai thác chi tiết
+- Giải thích rõ từng khía cạnh của vấn đề một cách sâu sắc
 - "${derived.callerDisplayName}" phản hồi, chia sẻ thêm chi tiết
-- "${derived.hostLabel}" đặt câu hỏi thâm nhập (không tư vấn)
 ${isLast ? `- Kết thúc phần này với ${derived.guestShortLabel} bắt đầu đưa ra lời khuyên tổng kết` : "- Duy trì mạch hội thoại tự nhiên, chưa đến phần kết"}
 
-=== PHÂN VAI TUYỆT ĐỐI ===
-"${derived.guestShortLabel}": Người duy nhất tư vấn chuyên môn, đưa lời khuyên.
-"${derived.hostLabel}": Chỉ hỏi thăm, thấu cảm, dẫn dắt. KHÔNG tư vấn.
-"${derived.callerDisplayName}": Chia sẻ, phản hồi, đặt câu hỏi.
+=== XƯNG HÔ BẮT BUỘC ===
+- "${derived.callerDisplayName}" xưng hô bằng "em" hoặc "tôi". TUYỆT ĐỐI CẤM dùng "cháu".
+- "${derived.guestShortLabel}" gọi thính giả là "bạn" hoặc "anh/chị" tuỳ giới tính.
 
 === LUẬT KỸ THUẬT ===
 - Mỗi lời thoại: [Tên]: [nội dung dài, chi tiết, không ngắn gọn]
@@ -287,6 +296,7 @@ BƯỚC 1 — Lời khuyên chốt hạ:
 BƯỚC 2 — Lời động viên và cảm ơn:
   - "${derived.guestShortLabel}" gửi lời động viên ấm áp đến "${derived.callerDisplayName}".
   - "${derived.callerDisplayName}" cảm ơn và chia sẻ cảm xúc sau buổi tư vấn.
+  - "${derived.callerDisplayName}" dùng "em" hoặc "tôi" khi nói. TUYỆT ĐỐI CẤM dùng "cháu".
 
 BƯỚC 3 — MC đóng chương trình:
   - "${derived.hostLabel}" cảm ơn khách mời "${derived.guestShortLabel}".
