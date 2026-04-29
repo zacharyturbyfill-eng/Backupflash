@@ -137,8 +137,8 @@ function classifyCleanError(e: any, provider: 'gemini' | 'openai', chunkIndex?: 
       return `🔄 Gemini: Server đang quá tải (503)${chunkInfo}. Thử lại sau vài phút.`;
     if (status === 504 || msg.includes('deadline_exceeded') || msg.includes('timeout'))
       return `⏱️ Gemini: Request timeout (504)${chunkInfo}. Văn bản có thể quá dài, thử chia nhỏ hơn.`;
-    if (status === 500 || msg.includes('internal'))
-      return `🔴 Gemini: Lỗi nội bộ server (500)${chunkInfo}. Thường tạm thời, thử lại sau.`;
+    if (status === 500 || status === 503 || msg.includes('internal') || msg.includes('unavailable') || msg.includes('overloaded'))
+      return `🔴 Gemini: Server đang gặp sự cố hoặc quá tải (500/503)${chunkInfo}. Đang thử lại...`;
     return `❌ Gemini lỗi${chunkInfo}: ${e?.message || 'Unknown error'}`;
   }
 
@@ -165,15 +165,23 @@ const cleanWithOpenAI = async (apiKey: string, text: string): Promise<string> =>
   const outputs: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: buildCleanPrompt(chunks[i], i, chunks.length) }],
-      });
-      outputs.push((response.choices[0]?.message?.content || '').trim());
-    } catch (e: any) {
-      throw new Error(classifyCleanError(e, 'openai', i));
+    let lastError = '';
+    let success = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: buildCleanPrompt(chunks[i], i, chunks.length) }],
+        });
+        outputs.push((response.choices[0]?.message?.content || '').trim());
+        success = true;
+        break;
+      } catch (e: any) {
+        lastError = classifyCleanError(e, 'openai', i);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
     }
+    if (!success) throw new Error(lastError || `Lỗi không thể xử lý đoạn ${i + 1} sau 3 lần thử.`);
   }
 
   return outputs.join('\n\n').trim();
@@ -185,15 +193,25 @@ const cleanWithGemini = async (apiKey: string, text: string, geminiModel: string
   const outputs: string[] = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: geminiModel,
-        contents: buildCleanPrompt(chunks[i], i, chunks.length),
-      });
-      outputs.push((response.text || '').trim());
-    } catch (e: any) {
-      throw new Error(classifyCleanError(e, 'gemini', i));
+    let lastError = '';
+    let success = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: geminiModel,
+          contents: buildCleanPrompt(chunks[i], i, chunks.length),
+        });
+        outputs.push((response.text || '').trim());
+        success = true;
+        break;
+      } catch (e: any) {
+        lastError = classifyCleanError(e, 'gemini', i);
+        // Nếu lỗi 429 hoặc 503 thì chờ lâu hơn một chút
+        const waitTime = (e.status === 429 || e.status === 503) ? 2000 : 1000;
+        if (attempt < 3) await new Promise(r => setTimeout(r, waitTime * attempt));
+      }
     }
+    if (!success) throw new Error(lastError || `Lỗi không thể xử lý đoạn ${i + 1} sau 3 lần thử.`);
   }
 
   return outputs.join('\n\n').trim();

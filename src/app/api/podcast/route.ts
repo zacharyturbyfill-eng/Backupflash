@@ -526,11 +526,17 @@ export async function POST(req: NextRequest) {
           if (lines.length > 0 && dialogueCharCount(lines) >= minChunkChars) break;
           if (lines.length > 0 && attempt < 4) {
             // Có output nhưng còn ngắn: thử lại để phủ đủ ý hơn.
-            await wait(900 * attempt);
+            console.log(`[Podcast] Output too short (${dialogueCharCount(lines)}/${minChunkChars}), retrying... (Attempt ${attempt})`);
+            await wait(1500 * attempt);
           }
         } catch (e: any) {
           lastError = classifyApiError(e, provider);
-          if (attempt < 4) await wait(1200 * attempt);
+          console.error(`[Podcast] API Error on chunk ${i+1}: ${lastError} (Attempt ${attempt})`);
+          if (attempt < 4) {
+            // Nếu lỗi 503 hoặc 429 thì chờ lâu hơn
+            const delay = (e.status === 503 || e.status === 429) ? 3000 : 1500;
+            await wait(delay * attempt);
+          }
         }
       }
       if (lines.length === 0) {
