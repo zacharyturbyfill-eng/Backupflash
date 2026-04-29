@@ -176,37 +176,51 @@ async function generateSection(
   contextPrompt: string,
   previousContent: string,
   partIndex: number,
-  totalParts: number
+  totalParts: number,
+  hostName: string,
+  guestName: string,
+  callerName: string,
+  mcGreeting: string
 ): Promise<string> {
   const isFirstPart = partIndex === 0;
-  // Mỗi phần cần viết đúng target chars
   const targetCharsPerSection = section.estimatedChars || 4000;
-  // maxOutputTokens: ~1.5 token/chữ Việt → nhân 1.6 để dư tải
   const sectionMaxTokens = Math.min(65536, Math.max(8192, Math.ceil(targetCharsPerSection * 1.6)));
 
   const systemPrompt = `
     VIẾT KỊCH BẢN THOẠI RADIO. PHẦN ${partIndex + 1}/${totalParts}.
-    MỤC TIÊU: Viết ĐÚNG ${targetCharsPerSection} ký tự (chữ) cho phần này. Đây là yêu cầu bắt buộc về độ dài.
+    MỤC TIÊU: Viết ĐÚNG ${targetCharsPerSection} ký tự cho phần này.
 
-    === QUY TẮC NỐI TIẾP (QUAN TRỌNG NHẤT) ===
+    ╔═══ TÊN NHÂN VẬT BẮT BUỘC (LỆNH CAO NHẤT) ═══╗
+    MC dẫn chương trình    → Viết: "${hostName}:"
+    Khách mời tư vấn       → Viết: "${guestName}:"
+    Thính giả gọi vào      → Viết: "${callerName}:"
+    ╚════════════════════════════════════════════════╝
+    CẤM TUYỆT ĐỐI dùng bất kỳ tên nào khác.
+    Kịch bản mẫu CHỈ là ví dụ phong cách, KHÔNG copy tên từ đó.
+
+    ĐỊNH DẠNG LỜI THOẠI:
+    ${hostName}: [lời thoại]
+    ${guestName}: [lời thoại]
+    ${callerName}: [lời thoại]
+
+    === QUY TẮC NỐI TIẾP ===
     ${
       !isFirstPart
-        ? "ĐÂY LÀ PHẦN TIẾP THEO. CẤM CHÀO HỎI LẠI. CẤM GIỚI THIỆU LẠI NHÂN VẬT. Bắt đầu ngay bằng lời thoại nối tiếp nội dung trước."
-        : "ĐÂY LÀ PHẦN MỞ ĐẦU. Thực hiện màn chào hỏi và nêu vấn đề."
+        ? `PHẦN TIẾP THEO: CẤM chào hỏi lại. Bắt đầu ngay bằng lời thoại nối tiếp.`
+        : `PHẦN MỞ ĐẦU: ${mcGreeting} Sau đó thính giả nêu vấn đề.`
     }
 
-    === PHÂN VAI TUYỆT ĐỐI ===
-    1. MC: Dẫn dắt, hỏi thâm nhập, thấu cảm. TUYỆT ĐỐI KHÔNG TƯ VẤN.
-    2. KHÁCH MỜI: Duy nhất người này mới được khuyên "Bạn nên...", "Giải pháp là...".
+    PHÂN VAI:
+    "${hostName}": CHỈ hỏi, dẫn dắt, thấu cảm. TUYỆT ĐỐI không tư vấn y tế.
+    "${guestName}": Duy nhất người này được đưa ra lời khuyên, phân tích, giải pháp.
 
-    === ĐỊNH DẠNG ===
-    - Tên nhân vật: Lời thoại.
-    - CẤM ngoặc đơn chỉ dẫn sân khấu (cười), (khóc)...
-    - CẤM ghi "Phần ${partIndex + 1}".
-    - PHẢI viết đủ ${targetCharsPerSection} ký tự, không dừng giữa chừng.
+    QUY TẮC KHÁC:
+    - CẤM ngoặc đơn (cười), (khóc)...
+    - CẤM tiêu đề "Phần ${partIndex + 1}".
+    - PHẢI viết đủ ${targetCharsPerSection} ký tự.
 
     Nội dung phần này: ${section.title} - ${section.keyPoints}
-    Lịch sử cuộc hội thoại trước đó:
+    Lịch sử hội thoại trước:
     """
     ${previousContent.slice(-2500)}
     """
@@ -397,7 +411,11 @@ export async function POST(req: NextRequest) {
         contextPrompt,
         accumulatedContent,
         i,
-        outline.length
+        outline.length,
+        hostLabel,
+        guestShortLabel,
+        callerDisplayName,
+        mcGreetingRequirement
       );
       console.log(`[Radio] Section ${i+1} length: ${part.length} chars`);
       fullResult += (i > 0 ? "\n\n" : "") + part;
