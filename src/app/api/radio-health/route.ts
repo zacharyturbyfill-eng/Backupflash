@@ -170,11 +170,11 @@ async function generateOpening(
   },
   targetChars: number
 ): Promise<string> {
-  const tokens = Math.min(65536, Math.max(4096, Math.ceil(targetChars * 1.6)));
+  const tokens = Math.min(65536, Math.max(2048, Math.ceil(targetChars / 1.5)));
 
   const systemPrompt = `
 Bạn là biên kịch Radio chuyên nghiệp. Viết PHẦN MỞ ĐẦU của kịch bản Radio Sức Khỏe.
-MỤC TIÊU ĐỘ DÀI: Viết ĐÚNG ${targetChars} ký tự.
+MỤC TIÊU ĐỘ DÀI: Tối đa ${targetChars} ký tự. Ưu tiên sự súc tích, đủ ý, không bôi chữ.
 
 === CẤU TRÚC BẮT BUỘC CỦA PHẦN MỞ ĐẦU ===
 BƯỚC 1 — MC mở đầu chương trình:
@@ -198,22 +198,11 @@ BƯỚC 3 — MC chuyển cuộc cho khách mời (CHỈ 1 CÂU DUY NHẤT):
 - Khách mời gọi thính giả là "bạn" hoặc "anh/chị" tuỳ giới tính.
 - MC gọi thính giả bằng tên hoặc "bạn".
 
-=== ĐỊNH DẠNG LỜI THOẠI BẮT BUỘC ===
-Mỗi lượt thoại viết trên MỘT DÒNG DUY NHẤT:
-Tên: [nội dung lời thoại]
-
-VÍ DỤ ĐÚNG:
-${derived.hostLabel}: Thử hỏi...
-${derived.callerDisplayName}: Em...
-${derived.guestShortLabel}: Bạn có thể...
-
-TUYỆT ĐỐI CẤM:
-- Mô tả nội tâm hoặc hành động nhân vật
-- Chỉ dẫn sân khấu trong ngoặc đơn hay ngoặc vuông
-- Dấu sao hoặc dấu gạch nối mô tả hành động
-- Tiêu đề "Phần 1", "Phần 2"...
-- Xuống dòng giữa một lượt thoại
-- PHẢI đạt ${targetChars} ký tự
+=== LUẬT KỸ THUẬT ===
+- ĐỘ DÀI: Tối đa ${targetChars} ký tự. Ưu tiên sự súc tích, đủ ý, không bôi chữ.
+- Mỗi lời thoại bắt đầu bằng: [Tên nhân vật]: [nội dung]
+- TUYỆT ĐỐI CẤM: ngoặc đơn chỉ dẫn sân khấu, mô tả nội tâm, hành động.
+- TUYỆT ĐỐI CẤM: viết tiêu đề "Phần 1", "Phần 2"...
 `.trim();
 
   if (provider === "openai") return generateWithOpenAI(key, context, systemPrompt);
@@ -236,44 +225,38 @@ async function generateCounseling(
   phaseIndex: number,
   totalCounselingPhases: number
 ): Promise<string> {
-  const tokens = Math.min(65536, Math.max(8192, Math.ceil(targetChars * 1.6)));
+  const tokens = Math.min(65536, Math.max(4096, Math.ceil(targetChars / 1.5)));
   const isLast = phaseIndex === totalCounselingPhases - 1;
 
   const systemPrompt = `
 Bạn là biên kịch Radio chuyên nghiệp. Viết PHẦN TƯ VẤN ${phaseIndex + 1}/${totalCounselingPhases} của kịch bản.
-MỤC TIÊU ĐỘ DÀI: Viết ĐÚNG ${targetChars} ký tự. Không được dừng trước khi đạt đủ số ký tự.
+MỤC TIÊU ĐỘ DÀI: Tối đa ${targetChars} ký tự. Tránh bôi chữ, tránh lặp lại ý đã nói.
 
 === NHÂN VẬT TRONG PHẦN NÀY ===
 CHỈ CÓ HAI NHÂN VẬT: "${derived.guestShortLabel}" và "${derived.callerDisplayName}".
 TUYỆT ĐỐI CẤM "${derived.hostLabel}" (MC) xuất hiện trong phần này.
 Nếu bạn định viết "${derived.hostLabel}:" → xóa đi, thay bằng lời thoại của ${derived.guestShortLabel} hoặc ${derived.callerDisplayName}.
 
-=== QUY TẮC NỐI TIẾP ===
-Đây là phần TIẾP NỐI. CẤM chào hỏi lại. CẤM giới thiệu lại nhân vật.
-Bắt đầu ngay bằng lời thoại nối tiếp cuộc hội thoại trước.
+=== QUY TẮC NỐI TIẾP & CHỐNG LẶP ===
+- ĐÂY LÀ PHẦN TIẾP THEO. Bạn phải đọc kỹ "LỊCH SỬ HỘI THOẠI" bên dưới.
+- TUYỆT ĐỐI CẤM nhắc lại các câu hỏi, các lời khuyên hoặc các thông tin đã xuất hiện ở phần trước.
+- Mỗi lượt hội thoại phải mang lại thông tin MỚI hoặc khai thác sâu hơn khía cạnh CHƯA nói đến.
 
 === NHIỆM VỤ PHẦN NÀY ===
-${derived.guestShortLabel} (${derived.guestFullLabel}) tư vấn chuyên sâu cho "${derived.callerDisplayName}":
-- Phân tích nguyên nhân, bối cảnh vấn đề từ synopsis
-- Hỏi thêm các câu hỏi khai thác chi tiết
-- Giải thích rõ từng khía cạnh của vấn đề một cách sâu sắc
-- "${derived.callerDisplayName}" phản hồi, chia sẻ thêm chi tiết
-${isLast ? `- Kết thúc phần này với ${derived.guestShortLabel} bắt đầu đưa ra lời khuyên tổng kết` : "- Duy trì mạch hội thoại tự nhiên, chưa đến phần kết"}
+${derived.guestShortLabel} (${derived.guestFullLabel}) tư vấn cho "${derived.callerDisplayName}":
+- Trọng tâm: ${phaseIndex === 0 ? "Khai thác sâu nguyên nhân và cảm xúc" : "Phân tích các hệ lụy và đưa ra giải pháp bước đầu"}
+- "${derived.callerDisplayName}" phản hồi ngắn gọn, tập trung vào thắc mắc mới.
+${isLast ? `- Kết thúc phần này để chuyển sang phần kết luận lời khuyên.` : "- Duy trì mạch hội thoại tự nhiên, chuẩn bị chuyển ý."}
 
 === XƯNG HÔ BẮT BUỘC ===
 - "${derived.callerDisplayName}" xưng hô bằng "em" hoặc "tôi". TUYỆT ĐỐI CẤM dùng "cháu".
 - "${derived.guestShortLabel}" gọi thính giả là "bạn" hoặc "anh/chị" tuỳ giới tính.
 
-=== ĐỊNH DẠNG LỜI THOẠI BẮT BUỘC ===
-Mỗi lượt thoại viết trên MỘT DÒNG DUY NHẤT:
-Tên: [nội dung lời thoại đủ dài, chi tiết]
-
-TUYỆT ĐỐI CẤM:
-- Mô tả nội tâm hoặc hành động nhân vật
-- Chỉ dẫn sân khấu trong ngoặc đơn hay ngoặc vuông
-- Dấu sao hoặc dấu gạch nối mô tả hành động
-- Xuống dòng giữa một lượt thoại
-- PHẢI đạt đủ ${targetChars} ký tự
+=== LUẬT KỸ THUẬT ===
+- ĐỘ DÀI: Tối đa ${targetChars} ký tự. Ưu tiên sự súc tích, đủ ý, không bôi chữ.
+- Mỗi lời thoại bắt đầu bằng: [Tên nhân vật]: [nội dung]
+- TUYỆT ĐỐI CẤM: lặp lại nội dung đã nói ở phần trước.
+- TUYỆT ĐỐI CẤM: ngoặc đơn chỉ dẫn sân khấu, mô tả nội tâm.
 
 LỊCH SỬ HỘI THOẠI (để nối tiếp):
 """
@@ -299,11 +282,11 @@ async function generateClosing(
   },
   targetChars: number
 ): Promise<string> {
-  const tokens = Math.min(65536, Math.max(4096, Math.ceil(targetChars * 1.6)));
+  const tokens = Math.min(65536, Math.max(2048, Math.ceil(targetChars / 1.5)));
 
   const systemPrompt = `
 Bạn là biên kịch Radio chuyên nghiệp. Viết PHẦN KẾT THÚC của kịch bản.
-MỤC TIÊU ĐỘ DÀI: Viết ĐÚNG ${targetChars} ký tự.
+MỤC TIÊU ĐỘ DÀI: Tối đa ${targetChars} ký tự.
 
 === CẤU TRÚC BẮT BUỘC PHẦN KẾT ===
 BƯỚC 1 — Lời khuyên chốt hạ:
@@ -321,15 +304,14 @@ BƯỚC 3 — MC đóng chương trình:
   - "${derived.hostLabel}" chào kết chương trình "${derived.programLabel}" và hẹn gặp lại.
 
 === ĐỊNH DẠNG LỜI THOẠI BẮT BUỘC ===
-Mỗi lượt thoại viết trên MỘT DÒNG DUY NHẤT:
+- ĐỘ DÀI: Tối đa ${targetChars} ký tự.
+- Mỗi lượt thoại viết trên MỘT DÒNG DUY NHẤT:
 Tên: [nội dung lời thoại]
 
 TUYỆT ĐỐI CẤM:
-- Mô tả nội tâm hoặc hành động nhân vật
-- Chỉ dẫn sân khấu trong ngoặc đơn hay ngoặc vuông
-- Dấu sao hoặc dấu gạch nối mô tả hành động
-- Xuống dòng giữa một lượt thoại
-- PHẢI đạt ${targetChars} ký tự
+- Lặp lại các lời khuyên đã nói ở phần tư vấn trước đó.
+- Mô tả nội tâm hoặc hành động nhân vật.
+- Chỉ dẫn sân khấu.
 
 LỊCH SỬ HỘI THOẠI (để nối tiếp):
 """
