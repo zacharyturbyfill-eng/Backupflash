@@ -282,6 +282,7 @@ async function generateClosing(
     programLabel: string;
     hostLabel: string;
     guestShortLabel: string;
+    guestFullLabel: string;
     callerDisplayName: string;
   },
   targetChars: number
@@ -460,7 +461,7 @@ export async function POST(req: NextRequest) {
     const closingText = await generateClosing(
       key, provider, geminiModel,
       context, accumulated,
-      { programLabel, hostLabel, guestShortLabel, callerDisplayName },
+      { programLabel, hostLabel, guestShortLabel, guestFullLabel, callerDisplayName },
       closing
     );
     console.log(`[Radio] Closing: ${closingText.length} chars`);
