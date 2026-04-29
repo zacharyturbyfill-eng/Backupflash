@@ -395,10 +395,13 @@ async function generatePromptsBatch(
     const json = JSON.parse(raw);
     return Array.isArray(json?.results) ? json.results : [];
   } catch (error: any) {
-    if ((error.status === 500 || error.message?.includes('500')) && retryCount < 2) {
-      await new Promise((r) => setTimeout(r, 1000));
+    // Retry cho lỗi 500 hoặc 503 (thường gặp ở Gemini)
+    if ((error.status === 500 || error.status === 503 || error.message?.includes('500') || error.message?.includes('503')) && retryCount < 2) {
+      console.log(`[Medical3] Retrying batch due to ${error.status || 'unknown error'}... (Attempt ${retryCount + 1})`);
+      await new Promise((r) => setTimeout(r, 1500));
       return generatePromptsBatch(provider, apiKey, geminiModel, segments, localContext, settings, retryCount + 1);
     }
+    console.error('[Medical3] Batch Error after retries:', error.message);
     return [];
   }
 }

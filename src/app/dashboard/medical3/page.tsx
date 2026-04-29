@@ -274,11 +274,7 @@ export default function Medical3Page() {
         batch.forEach((seg) => {
           const sIdx = currentSegments.findIndex((s) => s.index === seg.index);
           if (sIdx !== -1 && !currentSegments[sIdx].generatedPrompt) {
-            const raw =
-              seg.relevantContext !== '[NO_CONTENT_AMBIENT_SHOT]'
-                ? seg.relevantContext
-                : 'A simple realistic scene of a Vietnamese household environment';
-            currentSegments[sIdx].generatedPrompt = `Realistic handheld shot of: ${raw}. Authentic Vietnamese daily life style, 4k, natural lighting.`;
+            currentSegments[sIdx].generatedPrompt = `[⚠️ Lỗi tạo prompt cho đoạn này - Vui lòng thử lại]`;
           }
         });
 
