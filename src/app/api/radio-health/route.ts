@@ -66,20 +66,19 @@ async function generateWithGemini(
   systemInstruction: string,
   model: string,
   temperature: number = 0.7,
+  maxOutputTokens: number = 8192,
   retryCount = 0
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
 
   try {
-    // ✅ Đúng chuẩn AI Studio: systemInstruction là field riêng trong config
-    // KHÔNG ghép vào contents vì sẽ khiến AI bị rối
     const result = await ai.models.generateContent({
       model,
       contents,
       config: {
         systemInstruction,
         temperature,
-        maxOutputTokens: 8192,
+        maxOutputTokens,
       },
     });
     const text = result.text || "";
@@ -90,13 +89,11 @@ async function generateWithGemini(
   } catch (error: any) {
     const status = error?.status || error?.code || 0;
     const msg = (error?.message || "").toLowerCase();
-    
-    // Nếu gặp lỗi 503 (Unavailable) hoặc 429 (Rate Limit), thực hiện retry
     if ((status === 503 || status === 429 || msg.includes("overloaded") || msg.includes("demand")) && retryCount < 3) {
       const delay = 2000 * (retryCount + 1);
       console.log(`Gemini retry in ${delay}ms... (lần ${retryCount + 1})`);
       await new Promise(r => setTimeout(r, delay));
-      return generateWithGemini(key, contents, systemInstruction, model, temperature, retryCount + 1);
+      return generateWithGemini(key, contents, systemInstruction, model, temperature, maxOutputTokens, retryCount + 1);
     }
     throw error;
   }
@@ -182,28 +179,34 @@ async function generateSection(
   totalParts: number
 ): Promise<string> {
   const isFirstPart = partIndex === 0;
+  // Mỗi phần cần viết đúng target chars
+  const targetCharsPerSection = section.estimatedChars || 4000;
+  // maxOutputTokens: ~1.5 token/chữ Việt → nhân 1.6 để dư tải
+  const sectionMaxTokens = Math.min(65536, Math.max(8192, Math.ceil(targetCharsPerSection * 1.6)));
 
   const systemPrompt = `
     VIẾT KỊCH BẢN THOẠI RADIO. PHẦN ${partIndex + 1}/${totalParts}.
-    
+    MỤC TIÊU: Viết ĐÚNG ${targetCharsPerSection} ký tự (chữ) cho phần này. Đây là yêu cầu bắt buộc về độ dài.
+
     === QUY TẮC NỐI TIẾP (QUAN TRỌNG NHẤT) ===
     ${
       !isFirstPart
-        ? "ĐÂY LÀ PHẦN TIẾP THEO. CẤM CHÀO HỎI LẠI. CẤM GIỚI THIỆU LẠI NHÂN VẬT. CẤM NHẮC LẠI VẤN ĐỀ ĐÃ NÓI. Bắt đầu ngay bằng lời thoại nối tiếp nội dung trước."
+        ? "ĐÂY LÀ PHẦN TIẾP THEO. CẤM CHÀO HỎI LẠI. CẤM GIỚI THIỆU LẠI NHÂN VẬT. Bắt đầu ngay bằng lời thoại nối tiếp nội dung trước."
         : "ĐÂY LÀ PHẦN MỞ ĐẦU. Thực hiện màn chào hỏi và nêu vấn đề."
     }
-    
+
     === PHÂN VAI TUYỆT ĐỐI ===
     1. MC: Dẫn dắt, hỏi thâm nhập, thấu cảm. TUYỆT ĐỐI KHÔNG TƯ VẤN.
-    2. BÁC SĨ/CHUYÊN GIA: Duy nhất người này mới được khuyên "Bạn nên...", "Giải pháp là...".
-    
+    2. KHÁCH MỜI: Duy nhất người này mới được khuyên "Bạn nên...", "Giải pháp là...".
+
     === ĐỊNH DẠNG ===
-    - Tên (Vai trò): Lời thoại.
+    - Tên nhân vật: Lời thoại.
     - CẤM ngoặc đơn chỉ dẫn sân khấu (cười), (khóc)...
     - CẤM ghi "Phần ${partIndex + 1}".
+    - PHẢI viết đủ ${targetCharsPerSection} ký tự, không dừng giữa chừng.
 
     Nội dung phần này: ${section.title} - ${section.keyPoints}
-    Lịch sử cuộc hội thoại trước đó: 
+    Lịch sử cuộc hội thoại trước đó:
     """
     ${previousContent.slice(-2500)}
     """
@@ -212,7 +215,7 @@ async function generateSection(
   if (provider === "openai") {
     return await generateWithOpenAI(key, contextPrompt, systemPrompt);
   }
-  return await generateWithGemini(key, contextPrompt, systemPrompt, model);
+  return await generateWithGemini(key, contextPrompt, systemPrompt, model, 0.7, sectionMaxTokens);
 }
 
 async function finalizeScript(
@@ -241,10 +244,12 @@ async function finalizeScript(
     ĐẦU RA: Trả về toàn bộ nội dung kịch bản đã được tinh chỉnh, giữ nguyên mọi chi tiết và độ dài ban đầu.
   `;
 
+  // Finalize cần output token lận (bằng full script)
+  // 1 ký tự Việt ≈ 1.5 token → 20k chars ≈ 30k tokens → dùng 65536 để an toàn
   if (provider === "openai") {
     return await generateWithOpenAI(key, fullScript, systemPrompt, 0.2);
   }
-  return await generateWithGemini(key, fullScript, systemPrompt, model, 0.2);
+  return await generateWithGemini(key, fullScript, systemPrompt, model, 0.2, 65536);
 }
 
 export async function POST(req: NextRequest) {
@@ -293,28 +298,30 @@ export async function POST(req: NextRequest) {
 
     // Build context prompt
     const hostLabel = healthConfig.hostName || "MC";
-    const guestLabel =
-      healthConfig.doctorName ||
-      (healthConfig.doctorRole === "DOCTOR" ? "Bác sĩ" : "Chuyên gia");
-    const guestRoleType =
-      healthConfig.doctorRole === "DOCTOR" ? "Bác sĩ" : "Chuyên gia";
+    const guestRoleType = healthConfig.doctorRole === "DOCTOR" ? "Bác sĩ" : "Chuyên gia";
+    // Tên đầy đủ nhân vật khách mời: "Bác sĩ Thúy Hải" hoặc chỉ "Bác sĩ" nếu không có tên
+    const guestFullLabel = healthConfig.doctorName
+      ? `${guestRoleType} ${healthConfig.doctorName}`
+      : guestRoleType;
+    // Tên ngắn dùng trong lời thoại
+    const guestShortLabel = healthConfig.doctorName || guestRoleType;
 
     let callerDisplayName = "";
     let callerRoleLabel = "";
     let mcGreetingRequirement = "";
 
     if (healthConfig.callerIdentityMode === "NAME") {
-      callerDisplayName = healthConfig.callerName || "Thành";
+      callerDisplayName = healthConfig.callerName || "bạn";
       callerRoleLabel = "Thính giả";
-      mcGreetingRequirement = `- MC chào mừng thính giả "${callerDisplayName}" đến với chương trình.`;
+      mcGreetingRequirement = `- MC chào mừng thính giả tên "${callerDisplayName}" đến với chương trình.`;
     } else if (healthConfig.callerIdentityMode === "ANONYMOUS") {
       callerDisplayName = "Thính giả";
       callerRoleLabel = "Giấu tên";
-      mcGreetingRequirement = `- MC chào thính giả giấu tên đang kết nối. TUYỆT ĐỐI không xưng tên riêng.`;
+      mcGreetingRequirement = `- MC chào thính giả giấu tên. TUYỆT ĐỐI không xưng tên riêng.`;
     } else if (healthConfig.callerIdentityMode === "LOCATION") {
-      callerDisplayName = "Thính giả";
-      callerRoleLabel = healthConfig.callerName || "Hà Nội";
-      mcGreetingRequirement = `- MC BẮT BUỘC mở đầu bằng câu: "Alo, ${callerRoleLabel} mình đâu ạ?". Tuyệt đối không xưng tên riêng, chỉ gọi bằng địa danh "${callerRoleLabel}".`;
+      callerDisplayName = healthConfig.callerName || "bạn";
+      callerRoleLabel = "Địa danh";
+      mcGreetingRequirement = `- MC BẮT BUỘC mở đầu: "Alo, ${callerDisplayName} mình đâu ạ?". Chỉ gọi bằng địa danh, không xưng tên riêng.`;
     }
 
     const contextPrompt = `
@@ -324,48 +331,63 @@ export async function POST(req: NextRequest) {
           ? "PODCAST STUDIO (MC, Chuyên gia và Thính giả ngồi trực tiếp tại studio)"
           : "HOTLINE RADIO (Kết nối điện thoại)"
       }
-      
-      NHÂN VẬT & GIỌNG VĂN:
-      - ${hostLabel} (MC): Người dẫn dắt. Học cách dùng từ từ mục "ADN LỜI THOẠI". CHỈ ĐƯỢC hỏi, thấu cảm. CẤM TƯ VẤN.
-      - ${guestLabel} (${guestRoleType}): Người tư vấn. Học cách dùng từ từ mục "ADN LỜI THOẠI". DUY NHẤT người này được đưa ra lời khuyên.
-      - ${callerDisplayName} (${callerRoleLabel}): Người chia sẻ vấn đề.
+
+      === DANH SÁCH NHÂN VẬT (BẮT BUỘC DÙNG ĐÚNG TÊN NÀY TRONG LỜI THOẠI) ===
+      1. MC dẫn chương trình → Tên trong lời thoại: "${hostLabel}"
+         Vai trò: CHỈ dẫn dắt, hỏi, thấu cảm. TUYỆT ĐỐI CẤM tư vấn y tế.
+         Giới tính: ${healthConfig.hostGender}
+
+      2. Khách mời tư vấn → Tên trong lời thoại: "${guestShortLabel}"
+         Chức danh đầy đủ: ${guestFullLabel}
+         Vai trò: Người DUY NHẤT được đưa ra lời khuyên, phân tích, giải pháp.
+         Giới tính: ${healthConfig.doctorGender}
+
+      3. Thính giả → Tên trong lời thoại: "${callerDisplayName}"
+         Vai trò: Người chia sẻ vấn đề cá nhân.
+
+      ĐỊNH DẠNG LỜI THOẠI BẮT BUỘC:
+      ${hostLabel}: [lời thoại MC]
+      ${guestShortLabel}: [lời thoại khách mời]
+      ${callerDisplayName}: [lời thoại thính giả]
 
       LUẬT MỞ ĐẦU:
       ${mcGreetingRequirement}
 
-      === DỮ LIỆU ADN LỜI THOẠI (BẮT BUỘC HỌC THEO CÁCH DÙNG TỪ) ===
+      === DỮ LIỆU ADN LỜI THOẠI (HỌC THEO CÁCH DÙNG TỪ, GIỌNG VĂN) ===
       """
-      ${healthConfig.characterDNA}
+      ${healthConfig.characterDNA || "(Không có DNA, tự xây dựng phong cách phù hợp)"}
       """
 
-      === CẤU TRÚC KỊCH BẢN MẪU (ADN PHONG CÁCH) ===
+      === CẤU TRÚC KỊCH BẢN MẪU (HỌC THEO PHONG CÁCH) ===
       """
       ${healthConfig.sampleScript}
       """
 
       Ý TƯỞNG CẦN TRIỂN KHAI: ${healthConfig.detailedIdea}
-      
+
       LUẬT BIÊN TẬP SỐNG CÒN:
-      1. CẤM: Chỉ dẫn sân khấu (ngoặc đơn).
-      2. CẤM: Lặp ý giữa các phần.
-      3. CẤM: Ghi "Phần 1", "Phần 2".
+      1. CẤM: Chỉ dẫn sân khấu trong ngoặc đơn (cười), (khóc)...
+      2. CẤM: Lặp ý hoặc chào hỏi lại giữa kịch bản.
+      3. CẤM: Ghi tiêu đề "Phần 1", "Phần 2"...
+      4. BẮT BUỘC: Dùng đúng tên nhân vật như đã liệt kê ở trên.
     `;
 
     // Step 1: Generate outline
+    console.log("[Radio] Step 1: Generating outline, charCount:", healthConfig.charCount);
     const outline = await generateScriptOutline(
       key,
       geminiModel,
       contextPrompt,
       healthConfig.charCount
     );
+    console.log("[Radio] Outline generated:", outline.length, "sections:", outline.map(s => s.title));
 
     // Step 2: Generate each section
     let fullResult = "";
     let accumulatedContent = "";
-    const progressSteps: string[] = [];
 
     for (let i = 0; i < outline.length; i++) {
-      progressSteps.push(`Phần ${i + 1}/${outline.length}: ${outline[i].title}`);
+      console.log(`[Radio] Step 2.${i+1}: Generating section "${outline[i].title}"`);
       if (i > 0) await new Promise((r) => setTimeout(r, 1500));
       const part = await generateSection(
         key,
@@ -377,27 +399,34 @@ export async function POST(req: NextRequest) {
         i,
         outline.length
       );
+      console.log(`[Radio] Section ${i+1} length: ${part.length} chars`);
       fullResult += (i > 0 ? "\n\n" : "") + part;
       accumulatedContent += part + " ";
     }
 
+    console.log("[Radio] Full result length:", fullResult.length);
+
     // Step 3: Finalize
     if (!fullResult || fullResult.length < 50) {
-       console.error("Full result is suspiciously short or empty:", fullResult);
+       console.error("[Radio] ERROR: Full result empty or too short:", fullResult.slice(0, 200));
+       throw new Error("Không thể tạo nội dung kịch bản. Gemini trả về rỗng ở bước 2. Thử lại hoặc kiểm tra API key.");
     }
 
     await new Promise((r) => setTimeout(r, 1000));
+    console.log("[Radio] Step 3: Finalizing script...");
     const finalizedScript = await finalizeScript(
       key,
       provider,
       geminiModel,
-      fullResult || "Lỗi: Không có nội dung để xử lý.",
+      fullResult,
       healthConfig
     );
+    console.log("[Radio] Finalized length:", finalizedScript.length);
 
     if (!finalizedScript) {
       throw new Error("Không thể hoàn thiện kịch bản (kết quả rỗng).");
     }
+
 
     // Log usage
     await Promise.all([

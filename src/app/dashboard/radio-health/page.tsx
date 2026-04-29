@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import {
@@ -63,6 +63,7 @@ export default function RadioHealthPage() {
   // Output state
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const resultRef = useRef<HTMLDivElement>(null);
   const [progressStep, setProgressStep] = useState("");
   const [errorText, setErrorText] = useState("");
   const [copied, setCopied] = useState(false);
@@ -95,6 +96,7 @@ export default function RadioHealthPage() {
 
   const handleGenerate = async () => {
     if (!user?.id || !detailedIdea.trim() || !sampleScript.trim()) return;
+    if (loading) return; // ← Chống double-click / double-trigger
     setLoading(true);
     setErrorText("");
     setResult("");
@@ -139,8 +141,12 @@ export default function RadioHealthPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Lỗi tạo kịch bản.");
-      if (!json.result) throw new Error("AI trả về kết quả rỗng. Vui lòng thử lại.");
+      if (!json.result) throw new Error(`AI trả về kết quả rỗng.`);
       setResult(json.result);
+      // Auto-scroll xuống kết quả
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     } catch (e: any) {
       setErrorText(e?.message || "Lỗi hệ thống.");
     } finally {
@@ -531,54 +537,34 @@ export default function RadioHealthPage() {
           )}
         </div>
 
+        {/* DEBUG - xóa sau khi fix */}
+        <div className="mb-2 text-xs text-yellow-400 font-mono bg-yellow-400/10 p-2 rounded-lg">
+          DEBUG: result.length = {result.length} | loading = {String(loading)} | error = "{errorText}"
+        </div>
+
         {/* Output */}
         {result && (
-          <div className="glass-card rounded-[2.5rem] border-rose-500/10 border overflow-hidden">
-            <div className="p-6 border-b border-white/5 flex items-center justify-between bg-rose-900/20">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-black text-rose-300 uppercase tracking-[0.2em]">
-                  Kịch Bản Radio Hoàn Chỉnh
-                </span>
-                <span className="px-2 py-0.5 bg-rose-500/10 rounded-md text-[9px] font-mono text-rose-300/70">
-                  {outputChars.toLocaleString()} ký tự
-                </span>
-              </div>
+          <div ref={resultRef} style={{border: '2px solid #f43f5e', borderRadius: '1rem', padding: '1.5rem', marginBottom: '1rem', background: '#0f172a'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem'}}>
+              <span style={{color:'#fb7185', fontWeight:'bold', fontSize:'12px', letterSpacing:'0.1em'}}>
+                KỊCH BẢN RADIO HOÀN CHỈNH · {result.length.toLocaleString()} ký tự
+              </span>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(result);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                }}
-                className="px-5 py-2.5 bg-white/5 hover:bg-rose-500/10 rounded-xl transition-all text-rose-200 flex items-center gap-2 text-xs font-bold border border-white/10"
+                onClick={() => { navigator.clipboard.writeText(result); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                style={{padding:'8px 16px', background:'rgba(244,63,94,0.2)', border:'1px solid rgba(244,63,94,0.4)', borderRadius:'8px', color:'#fda4af', fontSize:'12px', cursor:'pointer'}}
               >
-                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                {copied ? "Đã sao chép" : "Sao chép"}
+                {copied ? "✓ Đã sao chép" : "Sao chép"}
               </button>
             </div>
-            <div className="p-8 overflow-y-auto max-h-[600px] scrollbar-hide">
-              {result.split("\n").filter((l) => l.trim()).map((line, i) => {
-                const colon = line.indexOf(":");
-                if (colon > 0 && colon < 60) {
-                  const speaker = line.substring(0, colon);
-                  const content = line.substring(colon + 1);
-                  return (
-                    <div key={i} className="mb-5">
-                      <span className="font-black text-rose-400 text-sm uppercase tracking-tight">
-                        {speaker}:
-                      </span>
-                      <span className="ml-2 text-slate-200 leading-relaxed text-sm">{content}</span>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={i} className="mb-3 text-slate-500 italic px-4 border-l-2 border-white/10 py-1 text-sm">
-                    {line}
-                  </div>
-                );
-              })}
-            </div>
+            <textarea
+              readOnly
+              value={result}
+              style={{width:'100%', height:'600px', background:'transparent', border:'none', color:'#e2e8f0', fontSize:'13px', lineHeight:'1.8', resize:'vertical', outline:'none', fontFamily:'monospace'}}
+            />
           </div>
         )}
+
+
       </main>
     </div>
   );
