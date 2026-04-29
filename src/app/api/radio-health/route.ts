@@ -69,15 +69,15 @@ async function generateWithGemini(
   retryCount = 0
 ): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: key.trim() });
-  
-  // Trộn system instruction vào đầu nội dung
-  const fullPrompt = `${systemInstruction}\n\nNỘI DUNG CẦN XỪ LÝ:\n${contents}`;
 
   try {
+    // ✅ Đúng chuẩn AI Studio: systemInstruction là field riêng trong config
+    // KHÔNG ghép vào contents vì sẽ khiến AI bị rối
     const result = await ai.models.generateContent({
       model,
-      contents: fullPrompt,
+      contents,
       config: {
+        systemInstruction,
         temperature,
         maxOutputTokens: 8192,
       },
@@ -94,7 +94,7 @@ async function generateWithGemini(
     // Nếu gặp lỗi 503 (Unavailable) hoặc 429 (Rate Limit), thực hiện retry
     if ((status === 503 || status === 429 || msg.includes("overloaded") || msg.includes("demand")) && retryCount < 3) {
       const delay = 2000 * (retryCount + 1);
-      console.log(`Gemini 503/429 error, retrying in ${delay}ms... (lần ${retryCount + 1})`);
+      console.log(`Gemini retry in ${delay}ms... (lần ${retryCount + 1})`);
       await new Promise(r => setTimeout(r, delay));
       return generateWithGemini(key, contents, systemInstruction, model, temperature, retryCount + 1);
     }
@@ -146,8 +146,11 @@ async function generateScriptOutline(
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: fullPrompt,
-      config: { responseMimeType: "application/json" },
+      contents: contextPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      },
     });
     const text = response.text || "[]";
     return JSON.parse(cleanJson(text));
