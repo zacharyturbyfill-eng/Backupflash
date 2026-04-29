@@ -188,7 +188,7 @@ BƯỚC 2 — MC kết nối với thính giả "${derived.callerDisplayName}":
   - MC KHÔNG đưa ra lời khuyên chuyên môn.
 
 BƯỚC 3 — MC chuyển cuộc cho khách mời (CHỈ 1 CÂU DUY NHẤT):
-  - MC nói ĐÚNG MỘT CÂU: ví dụ: "${derived.guestShortLabel} sẽ trò chuyện cùng bạn về vấn đề này."
+  - MC nói ĐÚNG MỘT CÂU: ví dụ: "${derived.guestFullLabel} sẽ trò chuyện cùng bạn về vấn đề này."
   - SAU ĐÓ KẾT THÚC NGAY phần mở đầu.
   - TUYỆT ĐỐI CẤM: ${derived.guestShortLabel} chào hỏi hay tự giới thiệu trong phần này.
   - TUYỆT ĐỐI CẤM: viết nhiều hơn 1 câu cho bước chuyển này.
@@ -304,7 +304,7 @@ BƯỚC 2 — Lời động viên và cảm ơn:
   - "${derived.callerDisplayName}" dùng "em" hoặc "tôi" khi nói. TUYỆT ĐỐI CẤM dùng "cháu".
 
 BƯỚC 3 — MC đóng chương trình:
-  - "${derived.hostLabel}" cảm ơn khách mời "${derived.guestShortLabel}".
+  - "${derived.hostLabel}" cảm ơn khách mời "${derived.guestFullLabel}".
   - "${derived.hostLabel}" cảm ơn thính giả "${derived.callerDisplayName}" đã chia sẻ.
   - "${derived.hostLabel}" chào kết chương trình "${derived.programLabel}" và hẹn gặp lại.
 
