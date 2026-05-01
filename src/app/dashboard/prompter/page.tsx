@@ -38,7 +38,6 @@ export default function PrompterPage() {
   const [style, setStyle] = useState('Cinematic Realism');
   const [genre, setGenre] = useState('Medical Documentary');
   const [nationality, setNationality] = useState('Vietnamese');
-  const [genre, setGenre] = useState('Medical Documentary');
   const [geminiModel, setGeminiModel] = useState<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>('gemini-2.5-flash-lite');
 
   const [history, setHistory] = useState<any[]>([]);
