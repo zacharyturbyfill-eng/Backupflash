@@ -413,6 +413,7 @@ export async function POST(req: NextRequest) {
     const userId = String(body?.userId || '');
     const provider: ModelProvider = body?.provider === 'openai' ? 'openai' : 'gemini';
     const geminiModel = body?.geminiModel === 'gemini-2.5-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
+    const provider: ModelProvider = body?.provider === 'openai' ? 'openai' : 'gemini';
     if (!userId) return NextResponse.json({ error: 'Thiếu userId.' }, { status: 400 });
 
     const { error, profile, key } = await getProviderKeyForUser(userId, provider);
