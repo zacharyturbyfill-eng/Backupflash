@@ -140,6 +140,9 @@ export default function VoicePage() {
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
   const [projectTitle, setProjectTitle] = useState<string>("");
   const [needsVoiceRemapAfterSwitch, setNeedsVoiceRemapAfterSwitch] = useState(false);
+  const [switchedFromProvider, setSwitchedFromProvider] = useState<"ai84" | "ai33" | null>(null);
+  const [showSwitchReminderModal, setShowSwitchReminderModal] = useState(false);
+  const skipAutoParseRef = useRef(false);
   // Native Dialogue (v2) States
   const [nativeTaskId, setNativeTaskId] = useState<string | null>(null);
   const [nativeProgress, setNativeProgress] = useState<{ done: number; total: number } | null>(null);
