@@ -154,6 +154,8 @@ export default function AdminPage() {
     message: '',
   });
   const [proxyLiveById, setProxyLiveById] = useState<Record<string, { live: boolean; egressIp?: string | null; ai84Status?: number; error?: string }>>({});
+  const [singleKeyInputs, setSingleKeyInputs] = useState<Record<string, string>>({ gemini: '', openai: '' });
+  const [singleKeySaveStates, setSingleKeySaveStates] = useState<Record<string, 'idle' | 'loading' | 'success' | 'error'>>({ gemini: 'idle', openai: 'idle' });
   
   const [selectedUserHistory, setSelectedUserHistory] = useState<UserTaskHistory[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -833,41 +835,60 @@ export default function AdminPage() {
               ) : (
                 <motion.section key="vault" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {['gemini', 'openai'].map((prov) => {
-                        const vKey = vaultKeys.find(v => v.provider === prov);
+                      {(['gemini', 'openai'] as const).map((prov) => {
+                        const vKey = vaultKeys.find((v: any) => v.provider === prov);
+                        const accentClass = prov === 'gemini' ? 'indigo' : 'emerald';
+                        const borderFocus = prov === 'gemini' ? 'focus:border-indigo-500/50' : 'focus:border-emerald-500/50';
+                        const btnClass = prov === 'gemini'
+                          ? 'bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/30 text-indigo-100'
+                          : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/30 text-emerald-100';
+                        const saveState = singleKeySaveStates[prov];
                         return (
-                          <div key={prov} className="glass-card rounded-[2.5rem] p-8 border-white/5 flex flex-col justify-between min-h-[250px] relative overflow-hidden group">
+                          <div key={prov} className="glass-card rounded-[2.5rem] p-8 border-white/5 flex flex-col gap-5 relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform duration-700 pointer-events-none">
                                {prov === 'gemini' ? <Cpu size={120}/> : <Zap size={120}/>}
                              </div>
-                             <div>
-                                <div className="flex items-center gap-3 mb-6">
-                                   <div className={`p-3 rounded-2xl ${prov === 'gemini' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                                      {prov === 'gemini' ? <Cpu size={24}/> : <Zap size={24}/>}
-                                   </div>
-                                   <div>
-                                      <h4 className="text-xl font-bold text-white capitalize font-serif">{prov} Vault</h4>
-                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{vKey ? 'Key đã lưu' : 'Chưa có Key'}</p>
-                                   </div>
+                             <div className="flex items-center gap-3">
+                                <div className={`p-3 rounded-2xl bg-${accentClass}-500/10 text-${accentClass}-400`}>
+                                   {prov === 'gemini' ? <Cpu size={24}/> : <Zap size={24}/>}
                                 </div>
-                                <div className="p-4 bg-black/40 rounded-2xl border border-white/5 font-mono text-[10px] text-slate-500 mb-6 truncate">{vKey?.api_key || 'Dùng phao cứu sinh hệ thống'}</div>
+                                <div>
+                                   <h4 className="text-xl font-bold text-white capitalize font-serif">{prov} Vault</h4>
+                                   <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">{vKey ? 'Key đã lưu' : 'Chưa có Key'}</p>
+                                </div>
                              </div>
-                             <button
-                               onClick={async () => {
-                                 const current = vKey?.api_key || "";
-                                 const next = prompt(`Nhập API key cho ${prov.toUpperCase()}:`, current);
-                                 if (next === null) return;
-                                 const key = next.trim();
-                                 if (!key) {
-                                   alert("API key không được để trống.");
-                                   return;
-                                 }
-                                 await saveVaultKey(prov, key);
-                               }}
-                               className="w-full py-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold text-xs transition-all flex items-center justify-center gap-2"
-                             >
-                               <Save size={14}/> Cập Nhật Khóa
-                             </button>
+                             {vKey && (
+                               <div className="p-3 bg-black/40 rounded-2xl border border-white/5 font-mono text-[10px] text-slate-500 truncate">
+                                 {vKey.api_key.substring(0, 16)}...{vKey.api_key.substring(vKey.api_key.length - 6)}
+                               </div>
+                             )}
+                             <div className="flex gap-2">
+                               <input
+                                 type="password"
+                                 placeholder={`Dán API key ${prov === 'gemini' ? 'Gemini' : 'OpenAI'} vào đây...`}
+                                 value={singleKeyInputs[prov] || ''}
+                                 onChange={(e) => setSingleKeyInputs(prev => ({ ...prev, [prov]: e.target.value }))}
+                                 className={`flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none ${borderFocus} transition-all font-mono`}
+                               />
+                               <button
+                                 type="button"
+                                 disabled={saveState === 'loading' || !singleKeyInputs[prov]?.trim()}
+                                 onClick={async () => {
+                                   const key = (singleKeyInputs[prov] || '').trim();
+                                   if (!key) return;
+                                   setSingleKeySaveStates(prev => ({ ...prev, [prov]: 'loading' }));
+                                   await saveVaultKey(prov, key);
+                                   setSingleKeyInputs(prev => ({ ...prev, [prov]: '' }));
+                                   setSingleKeySaveStates(prev => ({ ...prev, [prov]: 'success' }));
+                                   setTimeout(() => setSingleKeySaveStates(prev => ({ ...prev, [prov]: 'idle' })), 2500);
+                                 }}
+                                 className={`px-5 py-3 rounded-xl font-bold text-xs border flex items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${btnClass}`}
+                               >
+                                 {saveState === 'loading' ? <><span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"/></> : saveState === 'success' ? <Check size={14}/> : <Save size={14}/>}
+                                 {saveState === 'loading' ? 'Lưu...' : saveState === 'success' ? 'Đã lưu!' : 'Lưu Key'}
+                               </button>
+                             </div>
+                             <p className="text-[9px] text-slate-600 italic">* {prov === 'gemini' ? 'Gemini API key dùng cho Medical3, Radio Sức Khỏe, Podcast.' : 'OpenAI API key dùng như backup cho Medical3 và Prompter.'}</p>
                           </div>
                         );
                       })}
