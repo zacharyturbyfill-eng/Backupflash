@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 const supabaseAdmin = createSupabaseAdminClient();
 
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 export interface ThumbnailConcept {
   analysis: string;

@@ -78,12 +78,33 @@ export default function ThumbnailPage() {
     if (file.size > 10 * 1024 * 1024) { setErrorText("Ảnh tối đa 10MB."); return; }
     setErrorText("");
     setImageFile(file);
-    setImageMime(file.type);
+
+    // Resize ảnh xuống max 1280px bằng canvas trước khi encode base64
+    // → tránh lỗi "Request Entity Too Large" (Next.js giới hạn body 4MB)
     const reader = new FileReader();
     reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImagePreview(result);
-      setImageBase64(result.split(",")[1]);
+      const dataUrl = e.target?.result as string;
+      setImagePreview(dataUrl); // preview dùng ảnh gốc cho đẹp
+
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1280;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          if (width > height) { height = Math.round((height * MAX) / width); width = MAX; }
+          else { width = Math.round((width * MAX) / height); height = MAX; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, width, height);
+        // Luôn output JPEG để giảm size tối đa
+        const resized = canvas.toDataURL("image/jpeg", 0.85);
+        setImageMime("image/jpeg");
+        setImageBase64(resized.split(",")[1]);
+      };
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
   };
