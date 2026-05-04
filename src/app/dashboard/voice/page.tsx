@@ -192,6 +192,8 @@ export default function VoicePage() {
   // Native Dialogue (v2) States
   const [nativeTaskId, setNativeTaskId] = useState<string | null>(null);
   const [nativeProgress, setNativeProgress] = useState<{ done: number; total: number } | null>(null);
+  const [nativeStatus, setNativeStatus] = useState<string>("idle");
+  const [nativeLogs, setNativeLogs] = useState<Array<{ time: string; msg: string; type: 'info' | 'success' | 'error' | 'warn' }>>([]);
   const [useNativeDialogue, setUseNativeDialogue] = useState(true);
   // Per-speaker settings: Record<speakerName, SpeakerSettings>
   const [speakerSettings, setSpeakerSettings] = useState<Record<string, SpeakerSettings>>({});
@@ -803,9 +805,17 @@ export default function VoicePage() {
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
       const MAX_POLL_MS = 1200000; // 20 phút cho hội thoại dài (10k+ ký tự)
+      let lastDone = -1;
+      let lastStatus = "";
+
+      const addLog = (msg: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') => {
+        const time = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+        setNativeLogs(prev => [...prev, { time, msg, type }]);
+      };
       
       const poll = async () => {
         if (Date.now() - startedAt > MAX_POLL_MS) {
+          addLog("Quá thời gian chờ (Timeout 20 phút).", "error");
           reject("Quá thời gian chờ xử lý hội thoại.");
           return;
         }
@@ -816,25 +826,44 @@ export default function VoicePage() {
             body: JSON.stringify({ action: "get_dialogue_status", userId: user.id, taskId }),
           });
           const data = await res.json();
-          if (data.status === "done") {
+          
+          const status = data.status || "pending";
+          setNativeStatus(status);
+
+          if (status !== lastStatus) {
+            if (status === "queued") addLog("Đang chờ trong hàng đợi hệ thống...", "info");
+            else if (status === "pending") addLog("Bắt đầu tổng hợp âm thanh...", "info");
+            else if (status === "done") addLog("Hoàn tất tổng hợp!", "success");
+            else if (status === "failed") addLog(`Thất bại: ${data.error_message || "Lỗi không xác định"}`, "error");
+            lastStatus = status;
+          }
+
+          if (data.progress) {
+            const { segments_done, segments_total } = data.progress;
+            setNativeProgress({ done: segments_done, total: segments_total });
+            
+            if (segments_done > lastDone && segments_done > 0) {
+              addLog(`Đã xong ${segments_done}/${segments_total} lượt nói...`, "info");
+              lastDone = segments_done;
+            }
+          }
+
+          if (status === "done") {
             resolve(data.audio_url);
             return;
           }
-          if (data.status === "failed") {
+          if (status === "failed") {
             reject(data.error_message || "Tạo hội thoại thất bại");
             return;
           }
-          if (data.progress) {
-            setNativeProgress({
-              done: data.progress.segments_done,
-              total: data.progress.segments_total
-            });
-          }
+          
           setTimeout(poll, 5000);
-        } catch {
+        } catch (err: any) {
+          addLog(`Lỗi kết nối: ${err.message}. Đang thử lại...`, "warn");
           setTimeout(poll, 10000);
         }
       };
+      addLog(`Bắt đầu theo dõi Task ID: ${taskId.substring(0,8)}...`, "info");
       poll();
     });
   };
@@ -844,6 +873,7 @@ export default function VoicePage() {
     if (!ensureConversationVoicesSelected(linesToProcess)) return;
     
     setIsGenerating(true); setError(null); setNativeTaskId(null); setNativeProgress(null);
+    setNativeStatus("starting"); setNativeLogs([]);
     setMergedPreviewUrl(null); setMergedDownloadUrl(null);
 
     try {
@@ -1800,23 +1830,53 @@ export default function VoicePage() {
                 </motion.div>
               )}
 
-              {/* Native Dialogue Progress Bar */}
-              {isGenerating && useNativeDialogue && nativeProgress && (
-                <div className="mt-4 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
-                      <Loader2 size={12} className="animate-spin"/> Đang xử lý hội thoại Native (V2)
-                    </span>
-                    <span className="text-[10px] font-bold text-white">{nativeProgress.done} / {nativeProgress.total} câu</span>
+              {/* Native Dialogue Progress & Timeline */}
+              {isGenerating && useNativeDialogue && (
+                <div className="mt-4 space-y-3">
+                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                        <Loader2 size={12} className={nativeStatus !== 'done' && nativeStatus !== 'failed' ? "animate-spin" : ""}/> 
+                        {nativeStatus === 'queued' ? 'Đang trong hàng đợi' : 
+                         nativeStatus === 'pending' ? 'Đang xử lý hội thoại Native (V2)' : 
+                         nativeStatus === 'done' ? 'Đã hoàn thành' : 
+                         nativeStatus === 'failed' ? 'Lỗi xử lý' : 'Đang khởi tạo...'}
+                      </span>
+                      {nativeProgress && (
+                        <span className="text-[10px] font-bold text-white">{nativeProgress.done} / {nativeProgress.total} câu</span>
+                      )}
+                    </div>
+                    {nativeProgress && (
+                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          className={`h-full ${nativeStatus === 'failed' ? 'bg-rose-500' : 'bg-indigo-500'}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(nativeProgress.done / nativeProgress.total) * 100}%` }}
+                        />
+                      </div>
+                    )}
+                    <p className="text-[9px] text-slate-500 mt-2 italic">
+                      Hệ thống đang tổng hợp âm thanh toàn bộ hội thoại. Vui lòng chờ, không đóng trình duyệt...
+                    </p>
                   </div>
-                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-indigo-500"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(nativeProgress.done / nativeProgress.total) * 100}%` }}
-                    />
-                  </div>
-                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang tổng hợp âm thanh toàn bộ hội thoại. Vui lòng chờ, không đóng trình duyệt...</p>
+
+                  {/* Timeline Logs */}
+                  {nativeLogs.length > 0 && (
+                    <div className="p-4 bg-black/20 border border-white/5 rounded-2xl max-h-[150px] overflow-y-auto scrollbar-hide flex flex-col-reverse">
+                      <div className="space-y-2">
+                        {nativeLogs.map((log, i) => (
+                          <div key={i} className="flex gap-3 text-[10px] items-start animate-in fade-in slide-in-from-left-1 duration-300">
+                            <span className="text-slate-600 font-mono shrink-0">{log.time}</span>
+                            <span className={`font-medium ${
+                              log.type === 'success' ? 'text-emerald-400' : 
+                              log.type === 'error' ? 'text-rose-400' : 
+                              log.type === 'warn' ? 'text-amber-400' : 'text-slate-300'
+                            }`}>{log.msg}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
