@@ -251,8 +251,17 @@ export default function StoryboardPage() {
   };
 
   const handleCopy = () => {
-    const text = segments.filter((s) => s.generatedPrompt).map((s) => `${s.index}. ${s.generatedPrompt}`).join(spacingMode === 'single' ? '\n' : '\n\n');
-    navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000);
+    const text = segments
+      .filter((s) => s.generatedPrompt)
+      .map((s) => {
+        // Loại bỏ xuống dòng bên trong prompt để đảm bảo 1 prompt = 1 dòng
+        const cleanPrompt = (s.generatedPrompt || '').replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
+        return `${s.index}. ${cleanPrompt}`;
+      })
+      .join(spacingMode === 'single' ? '\n' : '\n\n');
+    navigator.clipboard.writeText(text); 
+    setCopied(true); 
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleGenerateSeo = async () => {

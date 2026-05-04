@@ -189,6 +189,7 @@ PROMPT RULES:
 4. NO TEXT IN FRAME: Never include written text or subtitles in the scene.
 5. NO SPEAKER/HOST: Do not show podcasters, interviewers, or talking heads. Show the story visually.
 6. CAMERA ANGLES: Use varied angles — close-up, wide shot, over-the-shoulder, aerial, etc.
+7. SINGLE LINE: Each prompt must be on exactly ONE line. Do NOT use newlines within a prompt.
 
 OUTPUT GOAL: Viewer sees ${characterName} experiencing the story moment-by-moment, in sync with the audio.
 `.trim();
