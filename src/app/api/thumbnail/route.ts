@@ -44,30 +44,33 @@ async function generateThumbnailConcept(
   const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
 
   const prompt = `
-Bạn là chuyên gia thiết kế Thumbnail YouTube triệu view cho các kênh về Sức khỏe, Đời sống và Review.
+Bạn là chuyên gia thiết kế Thumbnail YouTube triệu view cho kênh Sức khỏe & Đời sống.
 
-Nhiệm vụ: Tạo concept thumbnail dựa trên ảnh gốc nhân vật và tiêu đề: "${title}".
+QUAN TRỌNG: Ảnh đính kèm là ảnh tham chiếu nhân vật đã có sẵn.
+KHÔNG cần mô tả ngoại hình (da, tóc, chiều cao, trang phục) — AI image tool đã có reference.
+Hãy TẬP TRUNG hoàn toàn vào 3 yếu tố chính:
+  1. BIỂU CẢM (Expression): Phân tích biểu cảm hiện tại trong ảnh, đề xuất biểu cảm mạnh hơn phù hợp tiêu đề "${title}"
+  2. ĐẠO CỤ (Props): Đạo cụ nào nên cầm/tương tác để truyền tải chủ đề (chai thuốc, rau củ, thiết bị, sản phẩm...)
+  3. TƯ THẾ & ÁNH SÁNG: Tư thế tay, hướng nhìn, góc người, loại ánh sáng kịch tính
 
 QUY TẮC BỐ CỤC "STRICT 30/70" BẮT BUỘC:
-1. VÙNG NHÂN VẬT (TRÁI 30%):
-   - Nhân vật chiếm chính xác 30% diện tích khung hình bên trái.
-   - Cận cảnh từ ngực trở lên (Medium Close-up).
-   - Tay cầm sản phẩm hoặc mẫu vật phải nằm gọn trong vùng 30% này.
-   - Hướng nhìn: Hơi nghiêng về phía bên phải (vùng 70%) để dẫn dắt mắt người xem vào nội dung chữ sẽ chèn sau.
-2. VÙNG TEXT VÀNG (PHẢI 70%):
-   - Phải là không gian trống cực rộng hoặc phông nền cực kỳ mờ (Ultra Deep Bokeh).
-   - Tuyệt đối không có chi tiết thừa lấn vào vùng 70% này để đảm bảo text khi chèn vào sẽ cực kỳ nổi bật.
-3. CHI TIẾT PROMPT KỸ THUẬT:
-   - Sử dụng các từ khóa: "Extreme rule of thirds", "Character positioned on the far left 30% vertical section", "Massive empty space on the right 70%", "Clean background for text overlay", "Wide angle 16:9".
+- TRÁI 30%: Nhân vật cận cảnh từ ngực lên, tay cầm đạo cụ, mắt hướng phải dẫn người xem vào vùng text
+- PHẢI 70%: Không gian trống tuyệt đối / Ultra Deep Bokeh — vùng chèn text, KHÔNG có chi tiết nào
 
-ĐỊNH DẠNG TRẢ VỀ JSON (KHÔNG thêm markdown, chỉ JSON thuần):
+AI IMAGE PROMPT phải:
+- BẮT BUỘC bắt đầu: "Using provided reference image of the subject,"
+- Tập trung: biểu cảm + micro-expression, đạo cụ cụ thể, tư thế tay, ánh sáng dramatic
+- KHÔNG mô tả ngoại hình người (đã có reference image)
+- Kết thúc kỹ thuật: "subject on far left 30%, massive empty space right 70% for text overlay, cinematic rim lighting, dramatic shadows, 8K sharp, 16:9 YouTube thumbnail"
+
+ĐỊNH DẠNG TRẢ VỀ JSON (KHÔNG markdown, chỉ JSON thuần):
 {
-  "analysis": "Chiến lược bố cục: Tại sao tỷ lệ 30/70 lại tối ưu cho tiêu đề này?",
-  "emotion": "Cảm xúc chủ đạo",
-  "idea": "Mô tả: Tư thế nhân vật ở vùng 30% trái, mẫu vật trên tay, độ mờ của vùng 70% phải",
-  "prompt": "Highly detailed AI Image Prompt (English). MUST mandate: 'Subject positioned exactly on the left 30% of the frame', 'Right 70% is massive empty space with deep bokeh for text overlay', 'Hand holding product within the left section', 'Cinematic 8k', '16:9'.",
-  "keywords": ["TEXT 1", "TEXT 2", "TEXT 3"],
-  "layout": "Vị trí đặt text chính xác trong vùng 70% phải, gợi ý màu sắc tương phản mạnh với nền"
+  "analysis": "Phân tích tại sao biểu cảm + đạo cụ này sẽ gây click mạnh cho tiêu đề này. Giải thích chiến lược 30/70.",
+  "emotion": "Biểu cảm CỤ THỂ cần thể hiện (VD: Ánh mắt kiên định + nụ cười một bên, lông mày hơi nhướng — thể hiện sự tự tin về kiến thức)",
+  "idea": "Mô tả chi tiết: đạo cụ cầm tay là gì + cách cầm, tư thế tay + góc nghiêng người, ánh đèn rim light từ đâu, background bokeh màu gì",
+  "prompt": "Using provided reference image of the subject, [biểu cảm micro-expression cực kỳ cụ thể], [đạo cụ + cách cầm/tương tác], [tư thế tay + góc người], [dramatic cinematic lighting type], subject occupies left 30% of frame medium close-up chest up, gaze directed right, right 70% is pure empty space ultra deep bokeh gradient for text overlay, extreme rule of thirds, cinematic rim lighting dramatic shadows, 8K sharp, 16:9 YouTube thumbnail format",
+  "keywords": ["TỪ KHÓA TEXT CHÍNH", "TỪ KHÓA PHỤ", "TỪ KHÓA 3"],
+  "layout": "Vị trí text chính xác trong vùng 70% phải: gợi ý cỡ chữ, màu nền gradient tương phản, điểm nhấn màu highlight"
 }
 `;
 
