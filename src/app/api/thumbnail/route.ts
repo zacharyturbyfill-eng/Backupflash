@@ -51,27 +51,27 @@ QUAN TRỌNG: Ảnh đính kèm là ảnh tham chiếu nhân vật đã có sẵ
 KHÔNG mô tả ngoại hình (da, tóc, trang phục) — AI image tool đã có reference.
 TẬP TRUNG vào:
   1. BIỂU CẢM (Expression): Đề xuất biểu cảm cụ thể, mạnh mẽ phù hợp tiêu đề "${title}"
-  2. ĐẠO CỤ (Props): Đạo cụ nào nên cầm tay để truyền tải chủ đề
-  3. TƯ THẾ: Tư thế tay, hướng nhìn, góc nghiêng người
+  2. ĐẠO CỤ (Props): Đạo cụ nên cầm tay để truyền tải chủ đề (Chỉ nhắc: "hand holding product")
+  3. TƯ THẾ: Tư thế phải cân đối chính giữa, nhìn thẳng (KHÔNG nghiêng người)
 
 QUY TẮC BỐ CỤC "STRICT 30/70" BẮT BUỘC:
-- TRÁI 30%: Nhân vật cận cảnh từ ngực lên, tay cầm sản phẩm, mắt hướng phải
-- PHẢI 70%: Không gian trống hoàn toàn, Ultra Deep Bokeh — vùng chèn text
+- TRÁI 30%: Nhân vật cận cảnh từ ngực lên, tư thế cân đối chính giữa, nhìn thẳng, tay cầm sản phẩm.
+- PHẢI 70%: Không gian trống hoàn toàn, Ultra Deep Bokeh — vùng chèn text.
 
 Hai AI IMAGE PROMPT phải:
 - BẮT BUỘC bắt đầu: "Using provided reference image of the subject,"
-- Tập trung: biểu cảm micro-expression + đạo cụ + tư thế
-- KHÔNG mô tả ngoại hình, KHÔNG mô tả ánh sáng chi tiết
-- Khác nhau ở: biểu cảm và loại đạo cụ
-- Kết thúc: "subject on far left 30%, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail"
+- Tập trung: biểu cảm micro-expression + đạo cụ + tư thế cân đối chính giữa.
+- KHÔNG mô tả ngoại hình, KHÔNG mô tả ánh sáng chi tiết, KHÔNG nghiêng người.
+- Khác nhau ở: biểu cảm và loại sản phẩm cầm trên tay.
+- Kết thúc: "subject on far left 30% of the frame, centered balanced front-facing posture, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail"
 
 ĐỊNH DẠNG JSON (KHÔNG markdown):
 {
   "analysis": "Chiến lược bố cục + lý do biểu cảm này gây click mạnh",
   "emotion": "Biểu cảm CỤ THỂ (VD: Ánh mắt kiên định, lông mày hơi nhướng, nụ cười một bên tự tin)",
-  "idea": "Mô tả ngắn: đạo cụ cầm tay, tư thế tay, góc nghiêng người",
-  "prompt1": "Using provided reference image of the subject, [biểu cảm version A cực kỳ cụ thể], [đạo cụ A + cách cầm], [tư thế + góc người], subject on far left 30%, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
-  "prompt2": "Using provided reference image of the subject, [biểu cảm version B khác biệt với A], [đạo cụ B khác + cách tương tác], [tư thế khác], subject on far left 30%, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
+  "idea": "Mô tả ngắn: đạo cụ cầm tay, tư thế cân đối chính giữa nhìn thẳng",
+  "prompt1": "Using provided reference image of the subject, [biểu cảm version A cực kỳ cụ thể], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
+  "prompt2": "Using provided reference image of the subject, [biểu cảm version B khác biệt với A], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
   "keywords": ["TỪ KHÓA TEXT CHÍNH", "TỪ KHÓA PHỤ", "TỪ KHÓA 3"],
   "layout": "Vị trí và màu text trong vùng 70% phải"
 }
