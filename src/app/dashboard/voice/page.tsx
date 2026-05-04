@@ -802,7 +802,7 @@ export default function VoicePage() {
   const pollNativeDialogueStatus = async (taskId: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
-      const MAX_POLL_MS = 300000; // 5 phút cho hội thoại dài
+      const MAX_POLL_MS = 1200000; // 20 phút cho hội thoại dài (10k+ ký tự)
       
       const poll = async () => {
         if (Date.now() - startedAt > MAX_POLL_MS) {
@@ -1816,7 +1816,7 @@ export default function VoicePage() {
                       animate={{ width: `${(nativeProgress.done / nativeProgress.total) * 100}%` }}
                     />
                   </div>
-                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang tổng hợp âm thanh toàn bộ hội thoại. Vui lòng chờ...</p>
+                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang tổng hợp âm thanh toàn bộ hội thoại. Vui lòng chờ, không đóng trình duyệt...</p>
                 </div>
               )}
 
