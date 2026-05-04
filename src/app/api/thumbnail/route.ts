@@ -57,21 +57,22 @@ TẬP TRUNG vào:
 QUY TẮC BỐ CỤC "STRICT 30/70" BẮT BUỘC:
 - TRÁI 30%: Nhân vật cận cảnh từ ngực lên, tư thế cân đối chính giữa, nhìn thẳng, tay cầm sản phẩm.
 - PHẢI 70%: Không gian trống hoàn toàn, Ultra Deep Bokeh — vùng chèn text.
+- TUYỆT ĐỐI KHÔNG CÓ CHỮ (NO TEXT): Ảnh gen ra phải sạch hoàn toàn, không có bất kỳ chữ, ký tự hay văn bản nào.
 
 Hai AI IMAGE PROMPT phải:
 - BẮT BUỘC bắt đầu: "Using provided reference image of the subject,"
 - Tập trung: biểu cảm micro-expression + đạo cụ + tư thế cân đối chính giữa.
 - KHÔNG mô tả ngoại hình, KHÔNG mô tả ánh sáng chi tiết, KHÔNG nghiêng người.
-- Khác nhau ở: biểu cảm và loại sản phẩm cầm trên tay.
-- Kết thúc: "subject on far left 30% of the frame, centered balanced front-facing posture, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail"
+- TUYỆT ĐỐI KHÔNG có chữ: Thêm các từ khóa "no text, no letters, no words, clean background".
+- Kết thúc: "subject on far left 30% of the frame, centered balanced front-facing posture, massive empty space right 70% for text overlay, ultra deep bokeh, no text, no letters, no words, 8K, 16:9 YouTube thumbnail"
 
 ĐỊNH DẠNG JSON (KHÔNG markdown):
 {
   "analysis": "Chiến lược bố cục + lý do biểu cảm này gây click mạnh",
   "emotion": "Biểu cảm CỤ THỂ (VD: Ánh mắt kiên định, lông mày hơi nhướng, nụ cười một bên tự tin)",
   "idea": "Mô tả ngắn: đạo cụ cầm tay, tư thế cân đối chính giữa nhìn thẳng",
-  "prompt1": "Using provided reference image of the subject, [biểu cảm version A cực kỳ cụ thể], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
-  "prompt2": "Using provided reference image of the subject, [biểu cảm version B khác biệt với A], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, 8K, 16:9 YouTube thumbnail",
+  "prompt1": "Using provided reference image of the subject, [biểu cảm version A cực kỳ cụ thể], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, no text, no letters, no words, 8K, 16:9 YouTube thumbnail",
+  "prompt2": "Using provided reference image of the subject, [biểu cảm version B khác biệt với A], hand holding product, centered balanced front-facing posture, subject on far left 30% of the frame, massive empty space right 70% for text overlay, ultra deep bokeh, no text, no letters, no words, 8K, 16:9 YouTube thumbnail",
   "keywords": ["TỪ KHÓA TEXT CHÍNH", "TỪ KHÓA PHỤ", "TỪ KHÓA 3"],
   "layout": "Vị trí và màu text trong vùng 70% phải"
 }
