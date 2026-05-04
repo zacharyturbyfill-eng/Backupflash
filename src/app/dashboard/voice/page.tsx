@@ -831,8 +831,11 @@ export default function VoicePage() {
           setNativeStatus(status);
 
           if (status !== lastStatus) {
+            const isProcessing = ["pending", "active", "processing"].includes(status);
+            const wasProcessing = ["pending", "active", "processing"].includes(lastStatus);
+
             if (status === "queued") addLog("Đang chờ trong hàng đợi hệ thống...", "info");
-            else if (status === "pending") addLog("Bắt đầu tổng hợp âm thanh...", "info");
+            else if (isProcessing && !wasProcessing) addLog("Bắt đầu tổng hợp âm thanh...", "info");
             else if (status === "done") addLog("Hoàn tất tổng hợp!", "success");
             else if (status === "failed") addLog(`Thất bại: ${data.error_message || "Lỗi không xác định"}`, "error");
             lastStatus = status;
@@ -1838,7 +1841,7 @@ export default function VoicePage() {
                       <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
                         <Loader2 size={12} className={nativeStatus !== 'done' && nativeStatus !== 'failed' ? "animate-spin" : ""}/> 
                         {nativeStatus === 'queued' ? 'Đang trong hàng đợi' : 
-                         nativeStatus === 'pending' ? 'Đang xử lý hội thoại Native (V2)' : 
+                         (nativeStatus === 'pending' || nativeStatus === 'active' || nativeStatus === 'processing') ? 'Đang xử lý hội thoại Native (V2)' : 
                          nativeStatus === 'done' ? 'Đã hoàn thành' : 
                          nativeStatus === 'failed' ? 'Lỗi xử lý' : 'Đang khởi tạo...'}
                       </span>
