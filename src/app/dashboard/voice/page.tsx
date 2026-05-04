@@ -46,6 +46,51 @@ const DEFAULT_FIX_RULES: PronunciationFixRule[] = [
   { id: "r3", from: "mg", to: "miligram" },
 ];
 
+// ── Per-speaker settings constants ──────────────────────────────
+const MINIMAX_MODELS = [
+  { id: "",                      label: "Dùng mặc định (Speech 2.6 Turbo)" },
+  { id: "speech-2.6-turbo",      label: "Speech 2.6 Turbo — Nhanh" },
+  { id: "speech-2.6-hd",         label: "Speech 2.6 HD — Chất lượng cao" },
+  { id: "speech-02-turbo",       label: "Speech 02 Turbo — Nhanh" },
+  { id: "speech-02-hd",          label: "Speech 02 HD — Chất lượng cao" },
+  { id: "speech-2.5-turbo-preview", label: "Speech 2.5 Turbo Preview" },
+  { id: "speech-2.5-hd-preview", label: "Speech 2.5 HD Preview" },
+  { id: "speech-01-turbo",       label: "Speech 01 Turbo" },
+  { id: "speech-01-hd",          label: "Speech 01 HD" },
+];
+
+// code = dùng cho v2 dialogue (language_code)
+// boost = dùng cho v1 TTS (language_boost string)
+const LANGUAGE_OPTIONS = [
+  { code: "",   boost: "",             flag: "🌐", label: "Tự động" },
+  { code: "vi", boost: "Vietnamese",   flag: "🇻🇳", label: "Vietnamese" },
+  { code: "en", boost: "English",      flag: "🇺🇸", label: "English" },
+  { code: "ja", boost: "Japanese",     flag: "🇯🇵", label: "Japanese" },
+  { code: "zh", boost: "Chinese",      flag: "🇨🇳", label: "Chinese" },
+  { code: "ko", boost: "Korean",       flag: "🇰🇷", label: "Korean" },
+  { code: "fr", boost: "French",       flag: "🇫🇷", label: "French" },
+  { code: "es", boost: "Spanish",      flag: "🇪🇸", label: "Spanish" },
+  { code: "de", boost: "German",       flag: "🇩🇪", label: "German" },
+];
+
+interface SpeakerSettings {
+  model_id: string;       // "" = dùng global default
+  language_code: string;  // "" = auto
+  speed: number;          // 0.5 – 2.0
+  pitch: number;          // -12 – 12
+  volume: number;         // 0.0 – 1.0
+  pause_after_ms: number; // 0 – 5000
+}
+
+const DEFAULT_SPEAKER_SETTINGS: SpeakerSettings = {
+  model_id: "",
+  language_code: "",
+  speed: 1.0,
+  pitch: 0,
+  volume: 1.0,   // API range: 0–10, default 1.0
+  pause_after_ms: 0,
+};
+
 // --- Audio Processing Helper ---
 const writeWav = (buffer: AudioBuffer): Blob => {
   const numOfChan = buffer.numberOfChannels;
@@ -148,6 +193,29 @@ export default function VoicePage() {
   const [nativeTaskId, setNativeTaskId] = useState<string | null>(null);
   const [nativeProgress, setNativeProgress] = useState<{ done: number; total: number } | null>(null);
   const [useNativeDialogue, setUseNativeDialogue] = useState(true);
+  // Per-speaker settings: Record<speakerName, SpeakerSettings>
+  const [speakerSettings, setSpeakerSettings] = useState<Record<string, SpeakerSettings>>({});
+  const [expandedSpeaker, setExpandedSpeaker] = useState<string | null>(null);
+
+  const getSpeakerSettings = (name: string): SpeakerSettings =>
+    speakerSettings[name] ?? { ...DEFAULT_SPEAKER_SETTINGS };
+
+  const updateSpeakerSetting = <K extends keyof SpeakerSettings>(
+    name: string, key: K, value: SpeakerSettings[K]
+  ) => {
+    setSpeakerSettings(prev => ({
+      ...prev,
+      [name]: { ...getSpeakerSettings(name), [key]: value },
+    }));
+  };
+
+  const resetSpeakerSettings = (name: string) => {
+    setSpeakerSettings(prev => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
 
   const saveProviderSnapshot = useCallback((provider: "ai84" | "ai33", data: {
     text: string;
@@ -779,17 +847,33 @@ export default function VoicePage() {
     setMergedPreviewUrl(null); setMergedDownloadUrl(null);
 
     try {
-      // 1. Map speakers
+      // 1. Map speakers — dùng per-speaker settings nếu có
       const speakersMap = new Map<string, number>();
       const speakersList: any[] = [];
       uniqueSpeakers.forEach((name, idx) => {
         const id = idx + 1;
         speakersMap.set(name, id);
-        speakersList.push({
+        const cfg = getSpeakerSettings(name);
+        const entry: any = {
           id,
           voice_id: speakerVoiceMap[name],
-          model_id: model
-        });
+          model_id: cfg.model_id || model,
+        };
+        // language_code chỉ gửi khi khác auto
+        if (cfg.language_code) entry.language_code = cfg.language_code;
+        // voice_settings chỉ gửi khi khác mặc định
+        const hasCustomVoiceSettings =
+          cfg.speed !== 1.0 || cfg.pitch !== 0 || cfg.volume !== 1.0;
+        if (hasCustomVoiceSettings) {
+          entry.voice_settings = {
+            speed: cfg.speed,
+            pitch: cfg.pitch,
+            volume: cfg.volume,
+          };
+        }
+        // pause_after_ms chỉ gửi khi > 0
+        if (cfg.pause_after_ms > 0) entry.pause_after_ms = cfg.pause_after_ms;
+        speakersList.push(entry);
       });
 
       // 2. Map inputs
@@ -1415,21 +1499,138 @@ export default function VoicePage() {
               )}
             </div>
 
-            {/* Speaker Assignment (Conversation Mode) */}
+            {/* Speaker Assignment + Per-Speaker Settings (Conversation Mode) */}
             {isConversationMode && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-[2.5rem] p-6 border-white/5">
-                <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4"><Users size={16} className="text-indigo-400"/>Gán Giọng Nhân Vật</h3>
+                <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4">
+                  <Users size={16} className="text-indigo-400"/>Cấu Hình Nhân Vật
+                </h3>
                 <div className="space-y-3">
-                  {uniqueSpeakers.map(speaker => (
-                    <div key={speaker} className="space-y-1">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">{speaker}</label>
-                      <select value={speakerVoiceMap[speaker] || ""} onChange={(e) => setSpeakerVoiceMap(prev => ({ ...prev, [speaker]: e.target.value }))}
-                        className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 appearance-none">
-                        <option value="">Chọn giọng...</option>
-                        {voices.map(v => <option key={v.canonical_voice_id} value={v.canonical_voice_id}>{v.name}</option>)}
-                      </select>
-                    </div>
-                  ))}
+                  {uniqueSpeakers.map((speaker, idx) => {
+                    const cfg = getSpeakerSettings(speaker);
+                    const isExpanded = expandedSpeaker === speaker;
+                    const hasVoice = !!speakerVoiceMap[speaker];
+                    const selectedVoiceName = voices.find(v => v.canonical_voice_id === speakerVoiceMap[speaker])?.name || "UNKNOWN";
+                    return (
+                      <div key={speaker} className="rounded-2xl border border-white/8 overflow-hidden bg-white/[0.02]">
+                        {/* Header row */}
+                        <div className="flex items-center gap-3 p-3 cursor-pointer select-none" onClick={() => setExpandedSpeaker(isExpanded ? null : speaker)}>
+                          <div className="w-7 h-7 rounded-lg bg-indigo-600/70 flex items-center justify-center text-white text-[11px] font-black flex-shrink-0">{idx + 1}</div>
+                          <div className="w-7 h-7 rounded-lg bg-slate-700 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">{speaker.slice(0,1).toUpperCase()}</div>
+                          <span className="flex-1 text-sm font-semibold text-white truncate">{speaker}</span>
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
+                            hasVoice ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-300" : "bg-white/5 border-white/10 text-slate-500"
+                          }`}>{hasVoice ? selectedVoiceName.slice(0,12) : "UNKNOWN"}</span>
+                          <svg className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+
+                        {/* Expanded settings */}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }} className="overflow-hidden"
+                            >
+                              <div className="px-4 pb-4 space-y-4 border-t border-white/5 pt-4">
+                                {/* Voice selector */}
+                                <div>
+                                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5 block">Giọng Nói</label>
+                                  <select
+                                    value={speakerVoiceMap[speaker] || ""}
+                                    onChange={(e) => setSpeakerVoiceMap(prev => ({ ...prev, [speaker]: e.target.value }))}
+                                    className="w-full bg-slate-900/60 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                  >
+                                    <option value="">Chọn giọng...</option>
+                                    {voices.map(v => <option key={v.canonical_voice_id} value={v.canonical_voice_id}>{v.name}</option>)}
+                                  </select>
+                                </div>
+
+                                {/* Model */}
+                                <div>
+                                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5 block">Mô hình</label>
+                                  <select
+                                    value={cfg.model_id}
+                                    onChange={(e) => updateSpeakerSetting(speaker, "model_id", e.target.value)}
+                                    className="w-full bg-slate-900/60 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                  >
+                                    {MINIMAX_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                  </select>
+                                </div>
+
+                                {/* Language */}
+                                <div>
+                                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5 block">Ngôn ngữ</label>
+                                  <select
+                                    value={cfg.language_code}
+                                    onChange={(e) => updateSpeakerSetting(speaker, "language_code", e.target.value)}
+                                    className="w-full bg-slate-900/60 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                  >
+                                    {LANGUAGE_OPTIONS.map(l => <option key={l.code} value={l.code}>{l.flag} {l.label}</option>)}
+                                  </select>
+                                </div>
+
+                                {/* Speed */}
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Tốc độ</label>
+                                    <span className="text-[10px] font-mono text-slate-300">{cfg.speed.toFixed(2)}</span>
+                                  </div>
+                                  <input type="range" min="0.5" max="2" step="0.05" value={cfg.speed}
+                                    onChange={(e) => updateSpeakerSetting(speaker, "speed", parseFloat(e.target.value))}
+                                    className="w-full accent-green-500"
+                                  />
+                                  <div className="flex justify-between mt-0.5">
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">Chậm hơn</span>
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">Nhanh hơn</span>
+                                  </div>
+                                </div>
+
+                                {/* Pitch */}
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Cao độ</label>
+                                    <span className="text-[10px] font-mono text-slate-300">{cfg.pitch}</span>
+                                  </div>
+                                  <input type="range" min="-12" max="12" step="1" value={cfg.pitch}
+                                    onChange={(e) => updateSpeakerSetting(speaker, "pitch", parseInt(e.target.value))}
+                                    className="w-full accent-green-500"
+                                  />
+                                  <div className="flex justify-between mt-0.5">
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">Thấp hơn</span>
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">Cao hơn</span>
+                                  </div>
+                                </div>
+
+                                {/* Volume */}
+                                <div>
+                                  <div className="flex justify-between mb-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Âm lượng</label>
+                                    <span className="text-[10px] font-mono text-slate-300">{cfg.volume.toFixed(1)}</span>
+                                  </div>
+                                  <input type="range" min="0" max="10" step="0.5" value={cfg.volume}
+                                    onChange={(e) => updateSpeakerSetting(speaker, "volume", parseFloat(e.target.value))}
+                                    className="w-full accent-green-500"
+                                  />
+                                  <div className="flex justify-between mt-0.5">
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">Yên lặng</span>
+                                    <span className="text-[8px] text-slate-600 uppercase tracking-widest">To</span>
+                                  </div>
+                                </div>
+
+                                {/* Reset */}
+                                <button
+                                  onClick={() => resetSpeakerSettings(speaker)}
+                                  className="flex items-center gap-1.5 text-[9px] text-slate-500 hover:text-slate-300 transition-colors mt-1"
+                                >
+                                  <RefreshCw size={10}/> Đặt lại giá trị
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
                 </div>
               </motion.div>
             )}
