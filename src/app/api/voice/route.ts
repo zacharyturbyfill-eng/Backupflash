@@ -8,6 +8,8 @@ const DEFAULT_TIMEOUT = 30000;
 const MAX_RETRIES = 3;
 const DEAD_KEY_THRESHOLD = 3;     // 3 lỗi liên tiếp → đánh dấu chết
 const DEAD_KEY_COOLDOWN = 45000;  // 45 giây sau thử lại key chết
+const MIN_CREDITS_THRESHOLD = 2000; // Bỏ qua key dưới 2000 credits
+const CREDIT_CACHE_TTL_MS = 5 * 60 * 1000; // Cache hết hạn sau 5 phút
 const VOICE_PRESENCE_PREFIX = 'VOICE_PRESENCE|';
 const VOICE_FIX_RULES_PROVIDER = 'voice_fix_rules:global';
 
@@ -140,6 +142,47 @@ function getDeadKeyReport(entries: KeyEntry[]): Array<{ label: string; error: st
 
 // ===== END DEAD KEY DETECTION =====
 
+// ===== CREDIT CACHE =====
+interface CreditCacheEntry {
+  credits: number;
+  updatedAt: number;
+}
+const creditCache = new Map<string, CreditCacheEntry>();
+
+function updateCreditCache(apiKey: string, credits: number) {
+  creditCache.set(apiKey, { credits, updatedAt: Date.now() });
+  console.log(`[CREDIT CACHE] Key "${apiKey.substring(0, 8)}..." → ${credits.toLocaleString()} credits`);
+}
+
+function getCachedCredits(apiKey: string): number | null {
+  const entry = creditCache.get(apiKey);
+  if (!entry) return null; // chưa biết → cho phép dùng
+  if (Date.now() - entry.updatedAt > CREDIT_CACHE_TTL_MS) {
+    creditCache.delete(apiKey); // hết hạn → xóa, cho phép dùng
+    return null;
+  }
+  return entry.credits;
+}
+
+// Kiểm tra key có đủ credit không
+// - null (chưa có cache) → optimistic: cho phép
+// - < MIN_CREDITS_THRESHOLD → bỏ qua
+// - < requiredCredits → bỏ qua
+function isCreditSufficient(apiKey: string, requiredCredits = 0): boolean {
+  const cached = getCachedCredits(apiKey);
+  if (cached === null) return true; // chưa biết → thử
+  if (cached < MIN_CREDITS_THRESHOLD) {
+    console.log(`[CREDIT SKIP] Key "${apiKey.substring(0, 8)}..." chỉ còn ${cached} credits (< ${MIN_CREDITS_THRESHOLD}) → bỏ qua.`);
+    return false;
+  }
+  if (requiredCredits > 0 && cached < requiredCredits) {
+    console.log(`[CREDIT SKIP] Key "${apiKey.substring(0, 8)}..." có ${cached} credits, cần ${requiredCredits} → bỏ qua.`);
+    return false;
+  }
+  return true;
+}
+// ===== END CREDIT CACHE =====
+
 // Helper: Retry với exponential backoff
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -244,12 +287,22 @@ async function fetchAi84(
   return fetch(url, finalInit);
 }
 
-// Round-robin CHỈ trên keys sống
+// Round-robin trên keys sống + đủ credit
 let keyIndex = 0;
-function getNextAliveEntry(allEntries: KeyEntry[]): { entry: KeyEntry; index: number } {
+function getNextAliveEntry(
+  allEntries: KeyEntry[],
+  requiredCredits = 0
+): { entry: KeyEntry; index: number } {
   const aliveEntries = getAliveEntries(allEntries);
 
-  if (aliveEntries.length === 0) {
+  // Lọc thêm theo credit
+  const creditSufficient = aliveEntries.filter(e => isCreditSufficient(e.api_key, requiredCredits));
+
+  // Pool ưu tiên: alive + đủ credit; fallback: chỉ alive (trường hợp chưa có cache)
+  const pool = creditSufficient.length > 0 ? creditSufficient : aliveEntries;
+
+  if (pool.length === 0) {
+    // Khẩn cấp: tất cả dead → reset key ít lỗi nhất
     console.log('[KEY EMERGENCY] Tất cả keys đều chết! Reset key ít lỗi nhất...');
     let bestEntry = allEntries[0];
     let minFailures = Infinity;
@@ -267,7 +320,7 @@ function getNextAliveEntry(allEntries: KeyEntry[]): { entry: KeyEntry; index: nu
     return { entry: bestEntry, index: idx };
   }
 
-  const entry = aliveEntries[keyIndex % aliveEntries.length];
+  const entry = pool[keyIndex % pool.length];
   const originalIndex = allEntries.findIndex(e => e.api_key === entry.api_key);
   keyIndex++;
   return { entry, index: originalIndex };
@@ -500,21 +553,26 @@ export async function POST(req: NextRequest) {
 
     // --- ACTION: Tạo TTS async ---
     if (action === 'tts_async') {
+      // Ước tính credit cần dùng từ độ dài text (1 credit ≈ 1 ký tự)
+      const requiredCredits = typeof body.text === 'string' ? body.text.length : 0;
+
       let entry: KeyEntry;
       let usedIndex: number;
 
       if (body.keyIndex !== undefined) {
         const aliveEntries = getAliveEntries(allEntries);
-        if (aliveEntries.length === 0) {
-          const result = getNextAliveEntry(allEntries);
+        const creditFiltered = aliveEntries.filter(e => isCreditSufficient(e.api_key, requiredCredits));
+        const pool = creditFiltered.length > 0 ? creditFiltered : (aliveEntries.length > 0 ? aliveEntries : allEntries);
+        if (pool.length === 0) {
+          const result = getNextAliveEntry(allEntries, requiredCredits);
           entry = result.entry;
           usedIndex = result.index;
         } else {
-          usedIndex = body.keyIndex % aliveEntries.length;
-          entry = aliveEntries[usedIndex];
+          usedIndex = body.keyIndex % pool.length;
+          entry = pool[usedIndex];
         }
       } else {
-        const result = getNextAliveEntry(allEntries);
+        const result = getNextAliveEntry(allEntries, requiredCredits);
         entry = result.entry;
         usedIndex = result.index;
       }
@@ -686,7 +744,10 @@ export async function POST(req: NextRequest) {
             );
             if (!res.ok) return { label: entry.label, credits: -1, error: `HTTP ${res.status}` };
             const data = await res.json();
-            return { label: entry.label, credits: data.credits ?? 0, error: null };
+            const credits = data.credits ?? 0;
+            // Cập nhật credit cache ngay khi fetch thành công
+            if (credits >= 0) updateCreditCache(entry.api_key, credits);
+            return { label: entry.label, credits, error: null };
           } catch (err: any) {
             return { label: entry.label, credits: -1, error: err.message };
           }
@@ -778,7 +839,12 @@ export async function POST(req: NextRequest) {
 
     // --- ACTION: Tạo Hội Thoại Native (v2) ---
     if (action === 'create_dialogue') {
-      const { entry } = getNextAliveEntry(allEntries);
+      // Ước tính tổng ký tự của toàn bộ inputs
+      const requiredCredits = Array.isArray(body.inputs)
+        ? (body.inputs as any[]).reduce((s: number, i: any) => s + (typeof i.text === 'string' ? i.text.length : 0), 0)
+        : 0;
+
+      const { entry } = getNextAliveEntry(allEntries, requiredCredits);
       try {
         const res = await fetchAi84(
           allEntries,
@@ -801,9 +867,26 @@ export async function POST(req: NextRequest) {
           }
         );
         const data = await res.json();
-        if (res.ok) markKeySuccess(entry.api_key, entry.label);
-        else markKeyFailure(entry.api_key, data.message || 'Dialogue creation failed', entry.label);
-        
+        if (res.ok) {
+          markKeySuccess(entry.api_key, entry.label);
+          // Cập nhật credit cache nếu response có remaining_credits
+          if (typeof data.remaining_credits === 'number') {
+            updateCreditCache(entry.api_key, data.remaining_credits);
+          }
+        } else {
+          markKeyFailure(entry.api_key, data.message || 'Dialogue creation failed', entry.label);
+        }
+
+        // Log usage
+        if (res.ok) {
+          await supabaseAdmin.from('usage_logs').insert({
+            user_id: userId,
+            user_email: profile.email,
+            tool_name: `Hội Thoại AI (${body.provider || 'minimax'}) | ${Array.isArray(body.inputs) ? body.inputs.length : 0} turns`,
+            char_count: requiredCredits,
+          });
+        }
+
         return NextResponse.json(data, { status: res.status });
       } catch (err: any) {
         return NextResponse.json({ success: false, message: err.message }, { status: 500 });
