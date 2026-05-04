@@ -19,6 +19,7 @@ import {
   X,
   User,
   HeartPulse,
+  Image as ImageIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import SystemAnnouncementBanner from "@/components/SystemAnnouncementBanner";
@@ -250,6 +251,10 @@ export default function PodcastPage() {
           <button onClick={() => router.push('/dashboard/storyboard')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
             <User className="w-5 h-5 flex-shrink-0 text-violet-400" />
             <span className="ml-3 font-medium hidden md:block">Character Prompt</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/thumbnail')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+            <ImageIcon className="w-5 h-5 flex-shrink-0 text-amber-400" />
+            <span className="ml-3 font-medium hidden md:block">Thumbnail Master AI</span>
           </button>
           {user?.role === "admin" && (
             <button onClick={() => router.push("/admin")} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all">

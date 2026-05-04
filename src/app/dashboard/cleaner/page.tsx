@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { 
   Sparkles, Trash2, Copy, Check, LogOut, Settings, 
   AlertCircle, X, ChevronDown, Cpu, Zap, Loader2, Type, 
-  Clock, Eye, ChevronRight, Video, Volume2, Mic, HeartPulse
+  Clock, Eye, ChevronRight, Video, Volume2, Mic, HeartPulse,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SystemAnnouncementBanner from '@/components/SystemAnnouncementBanner';
@@ -247,6 +248,10 @@ export default function CleanerPage() {
           <button onClick={() => router.push('/dashboard/storyboard')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
             <Mic className="w-5 h-5 flex-shrink-0 group-hover:text-violet-400 transition-colors" />
             <span className="ml-3 font-medium hidden md:block">Character Prompt</span>
+          </button>
+          <button onClick={() => router.push('/dashboard/thumbnail')} className="w-full flex items-center p-4 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white transition-all group">
+            <ImageIcon className="w-5 h-5 flex-shrink-0 group-hover:text-amber-400 transition-colors" />
+            <span className="ml-3 font-medium hidden md:block">Thumbnail Master AI</span>
           </button>
           
           {user?.role === 'admin' && (

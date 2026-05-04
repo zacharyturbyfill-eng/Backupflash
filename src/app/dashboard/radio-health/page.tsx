@@ -18,6 +18,7 @@ import {
   Zap,
   HeartPulse,
   User,
+  Image as ImageIcon,
 } from "lucide-react";
 import SystemAnnouncementBanner from "@/components/SystemAnnouncementBanner";
 
@@ -35,6 +36,7 @@ const SIDEBAR_ITEMS = [
   { label: "Radio Sức Khỏe", path: "/dashboard/radio-health", icon: "heartpulse", active: true },
   { label: "Prompt Medical 3.0", path: "/dashboard/medical3", icon: "video" },
   { label: "Character Prompt", path: "/dashboard/storyboard", icon: "user" },
+  { label: "Thumbnail Master AI", path: "/dashboard/thumbnail", icon: "thumbnail" },
 ];
 
 export default function RadioHealthPage() {
@@ -167,6 +169,7 @@ export default function RadioHealthPage() {
     if (icon === "video") return <Video className="w-5 h-5 flex-shrink-0 text-orange-400" />;
     if (icon === "user") return <User className="w-5 h-5 flex-shrink-0 text-violet-400" />;
     if (icon === "video-prompter") return <Video className="w-5 h-5 flex-shrink-0" />;
+    if (icon === "thumbnail") return <ImageIcon className="w-5 h-5 flex-shrink-0 text-amber-400" />;
     return null;
   };
 
