@@ -1816,7 +1816,7 @@ export default function VoicePage() {
                       animate={{ width: `${(nativeProgress.done / nativeProgress.total) * 100}%` }}
                     />
                   </div>
-                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang gộp âm thanh trực tiếp trên Server. Vui lòng chờ...</p>
+                  <p className="text-[9px] text-slate-500 mt-2 italic">Hệ thống đang tổng hợp âm thanh toàn bộ hội thoại. Vui lòng chờ...</p>
                 </div>
               )}
 
