@@ -15,7 +15,8 @@ interface ThumbnailConcept {
   analysis: string;
   emotion: string;
   idea: string;
-  prompt: string;
+  prompt1: string;
+  prompt2: string;
   keywords: string[];
   layout: string;
 }
@@ -475,23 +476,43 @@ export default function ThumbnailPage() {
               onCopy={copyText}
             />
 
-            {/* AI Prompt - highlighted */}
+            {/* AI Prompt 1 */}
             <div className="glass-card rounded-2xl p-5 border-amber-500/20 bg-amber-500/5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <AlignLeft className="w-4 h-4 text-amber-400" />
-                  <p className="text-[10px] font-black text-amber-300 uppercase tracking-widest">AI Image Prompt (English)</p>
+                  <p className="text-[10px] font-black text-amber-300 uppercase tracking-widest">AI Prompt #1</p>
                 </div>
                 <button
-                  onClick={() => copyText(concept.prompt, "prompt")}
+                  onClick={() => copyText(concept.prompt1, "prompt1")}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-wider hover:bg-amber-500/30 transition-all"
                 >
-                  {copiedField === "prompt" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  {copiedField === "prompt" ? "Đã sao chép" : "Copy Prompt"}
+                  {copiedField === "prompt1" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedField === "prompt1" ? "Đã sao chép" : "Copy"}
                 </button>
               </div>
               <p className="text-sm text-slate-200 leading-relaxed font-mono bg-black/30 rounded-xl p-4 border border-white/5 select-all">
-                {concept.prompt}
+                {concept.prompt1}
+              </p>
+            </div>
+
+            {/* AI Prompt 2 */}
+            <div className="glass-card rounded-2xl p-5 border-indigo-500/20 bg-indigo-500/5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <AlignLeft className="w-4 h-4 text-indigo-400" />
+                  <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">AI Prompt #2</p>
+                </div>
+                <button
+                  onClick={() => copyText(concept.prompt2, "prompt2")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[10px] font-black uppercase tracking-wider hover:bg-indigo-500/30 transition-all"
+                >
+                  {copiedField === "prompt2" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedField === "prompt2" ? "Đã sao chép" : "Copy"}
+                </button>
+              </div>
+              <p className="text-sm text-slate-200 leading-relaxed font-mono bg-black/30 rounded-xl p-4 border border-white/5 select-all">
+                {concept.prompt2}
               </p>
             </div>
           </div>
